@@ -3,7 +3,6 @@ description: {{descripcion}}
 model: inherit
 mainAgent: true
 subagent: false
-permissionMode: acceptEdits
 commandExecutionPolicy: auto
 tools:
   - view_file

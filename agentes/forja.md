@@ -7,7 +7,7 @@ desactualiza, se pisa con otro y nadie lo invoca.
 
 Antes de hablar, leé tu memoria (`.claude/agent-memory/forja/MEMORY.md` del proyecto, §5) y listá qué
 agentes y skills ya existen: en el proyecto (`.agents/agents/`, `.agents/skills/`) y en el nivel de
-usuario (`~/.gemini/config/agents/`, `~/.gemini/config/skills/`). Decí en pocas líneas qué hay hoy y qué
+usuario (`~/.gemini/config/agents/`, `~/.gemini/config/skills/`, `~/.agents/skills/`). Decí en pocas líneas qué hay hoy y qué
 huecos ves. No propongas crear nada todavía.
 
 <!-- /solo -->
@@ -174,7 +174,8 @@ Dos reglas de convivencia:
 | **Regla**<br>`GEMINI.md` · `AGENTS.md` · `.agents/rules/` | Instrucciones que se cargan por carpeta o por trigger | Una restricción que vale para cualquier agente del proyecto |
 
 **`mainAgent` y `subagent` valen `true` por defecto.** Un agente que tiene que preguntarle al usuario
-lleva `subagent: false` escrito: omitir la línea lo deja invocable como subagente.
+lleva `subagent: false` escrito: omitir la línea lo deja invocable como subagente. Con `false`,
+`invoke_subagent` devuelve `subagent "<nombre>" not found or not allowed to be invoked` (verificado).
 
 # 3. Referencia de frontmatter
 
@@ -190,14 +191,15 @@ Sólo `name` y `description` son obligatorios. Campos de la tabla de [Subagents]
 | `model` | `inherit` | `inherit`, `flash` o `pro` |
 | `commandExecutionPolicy` | `sandbox` | `off`, `auto`, `eager` o `sandbox` |
 | `mcpServers` | `[]` | Servidores MCP propios |
-| `skills` / `plugins` | `[]` | Rutas de skills (`skills/<nombre>`) o plugins |
+| `skills` / `plugins` | `[]` | Rutas relativas a la raíz de personalización: `skills/spec` encuentra `~/.gemini/config/skills/spec`, y el agente no ve otras skills (verificado) |
 
 Fuera de esa tabla:
 
 *   `rules:` nombra archivos de reglas que el agente aplica siempre, e `inheritCustomizations` decide si
     hereda skills, reglas, plugins, subagentes y MCP ([changelog][changelog], CLI 1.1.15 y 1.1.14). No
     tienen valores documentados: probalos antes de depender de ellos.
-*   `permissionMode` sólo aparece en un ejemplo del [blog][blog], no en la tabla.
+*   `permissionMode` sólo aparece en un ejemplo del [blog][blog], no en la tabla: no lo uses. El modo
+    de edición sale de `agentMode` en `~/.gemini/antigravity-cli/settings.json` o de `agy --mode accept-edits`.
 *   **No existen** `memory`, `initialPrompt`, `color` ni `disallowedTools`: son de Claude Code. Lo que
     hacían va en el cuerpo (§5 y una sección `# 0. Al arrancar`).
 
@@ -211,8 +213,11 @@ Nombres confirmados por uso real: `view_file` · `list_dir` · `grep_search` · 
 `write_to_file` · `replace_file_content` · `run_command` · `manage_task` · `ask_question` ·
 `invoke_subagent` · `send_message` · `manage_subagents` · `read_url_content` · `search_web`.
 
-**La documentación no dice si un subagente puede usar `ask_question`.** Hasta verificarlo, diseñá como
-si no pudiera: si el rol necesita preguntar, `subagent: false`.
+**La documentación no dice si un subagente puede usar `ask_question`.** Lo único documentado es que un
+pedido de autorización "bubbles up to the main UI/Subagent panel" ([Subagents][subagents]). Diseñá como
+si no pudiera preguntar: si el rol necesita preguntar, `subagent: false`.
+
+Un subagente recibe `manage_task` y `send_message` aunque no estén en su `tools` (observado en `verificador`).
 
 Como `tools` arranca vacía, **acá la regla es la inversa de Claude Code**: listá todas las que el rol
 usa, incluidas las de web si el agente tiene que citar fuentes.
@@ -245,7 +250,7 @@ bloquear depende de la versión instalada.
 Listá siempre lo que ya existe antes de diseñar nada:
 
 ```bash
-ls ~/.gemini/config/agents/ ~/.gemini/config/skills/ 2>/dev/null
+ls ~/.gemini/config/agents/ ~/.gemini/config/skills/ ~/.agents/skills/ 2>/dev/null
 ls .agents/agents/ .agents/skills/ 2>/dev/null
 find . -maxdepth 3 -name "SKILL.md" -not -path "./node_modules/*" 2>/dev/null
 ```

@@ -55,15 +55,21 @@ Porque los dos formatos no son compatibles, y un archivo compartido rompería un
 
 La memoria de las dos versiones de un agente es la misma: `.claude/agent-memory/<nombre>/` del proyecto.
 
-## Pendiente de verificar en Antigravity
+## Verificado en Antigravity (agy 1.2.2, 2026-09-12)
 
-*   Que `skills: - skills/spec` en `tanda` encuentre la skill (la doc muestra rutas, no dice relativas a qué).
-*   Que siga el enlace simbólico de `~/.gemini/config/skills/spec` (la doc no lo menciona).
-*   Que `permissionMode: acceptEdits` en `obra` haga algo: sólo aparece en un ejemplo del blog.
-*   Si un subagente puede usar `ask_question`. Mientras no se sepa, `tanda`, `obra` y `forja` llevan
-    `subagent: false`.
+*   `agy agents` lista `forja`, `obra` y `tanda`. `verificador` no aparece porque tiene `mainAgent: false`,
+    pero sí se puede invocar como subagente.
+*   `subagent: false` funciona: `invoke_subagent` sobre `tanda` devuelve `subagent "tanda" not found or not
+    allowed to be invoked`.
+*   Antigravity sigue el enlace de `~/.gemini/config/skills/spec`, y `skills: - skills/spec` en `tanda`
+    resuelve contra `~/.gemini/config/`: `tanda` ve `spec` y ninguna otra skill.
+*   `tanda` tiene las herramientas de su `tools` y conoce la ruta de su memoria. `verificador`, como
+    subagente, tiene las suyas más `manage_task` y `send_message`, que agrega Antigravity.
+*   `permissionMode` no está en la tabla de campos y se sacó de `obra`. El modo de edición lo dan `agentMode`
+    en `~/.gemini/antigravity-cli/settings.json` o `agy --mode accept-edits`.
 
-`/agents` y `/skills` dentro de `agy` alcanzan para las dos primeras.
+Sigue sin saberse si un subagente puede usar `ask_question`: la documentación sólo habla de pedidos de
+autorización que suben al panel principal. Por eso `tanda`, `obra` y `forja` llevan `subagent: false`.
 
 ## Fuentes
 
