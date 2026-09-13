@@ -11,14 +11,17 @@ plataformas/<p>/config.json      dónde se escriben las copias, dónde se enlaza
 plataformas/<p>/<nombre>.yaml    el frontmatter de ese agente en esa plataforma
 skills/<nombre>/SKILL.md         skills propias: se enlazan, no se copian
 hooks/proteger-copias            hook de Claude Code que bloquea editar las copias generadas
+hooks/regenerar                  hook de Claude Code que corre generar después de editar la fuente
 generar                          escribe copias y enlaces; con --check sólo compara
 ```
 
 ## Cambiar algo
 
 1.  Editá `agentes/<nombre>.md`, su `.yaml` o la skill.
-2.  `~/Dev/agentes/generar`
-3.  Commit.
+2.  `~/Dev/agentes/generar`. Desde Claude Code no hace falta: `hooks/regenerar` lo corre solo después de
+    cada `Edit`/`Write` en este repo, y si la fuente tiene un error se lo devuelve al modelo. Desde
+    Antigravity, o si editás con otra herramienta, corrélo a mano.
+3.  Commit y push.
 
 `generar --check` no toca nada y sale con 1 si una copia o un enlace no coincide con la fuente: es la
 forma de detectar una copia editada a mano. En Claude Code, además, el hook corta el `Edit`/`Write`

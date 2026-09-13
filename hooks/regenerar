@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""Hook PostToolUse de Claude Code: después de un Edit/Write dentro de ~/Dev/agentes, corre generar.
+
+Si generar falla, sale con 2 y le devuelve la salida al modelo; si regeneró algo, se lo cuenta y le
+recuerda que falta commitear. https://code.claude.com/docs/en/hooks
+"""
+import json
+import os
+import subprocess
+import sys
+
+RAIZ = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
+
+try:
+    datos = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+
+ruta = (datos.get("tool_input") or {}).get("file_path") or ""
+if not ruta:
+    sys.exit(0)
+
+# realpath: una edición a ~/.claude/skills/spec/SKILL.md cae en la fuente a través del enlace.
+real = os.path.realpath(os.path.expanduser(ruta))
+dentro = real == RAIZ or real.startswith(RAIZ + os.sep)
+if not dentro or f"{os.sep}.git{os.sep}" in real:
+    sys.exit(0)
+
+resultado = subprocess.run([os.path.join(RAIZ, "generar")], capture_output=True, text=True)
+if resultado.returncode != 0:
+    print(
+        f"~/Dev/agentes/generar falló después de editar {ruta} (salida {resultado.returncode}):\n"
+        f"{resultado.stdout}{resultado.stderr}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+cambios = [l for l in resultado.stdout.splitlines() if l.startswith(("escrito", "borrado", "enlazado"))]
+if cambios:
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": "generar regeneró las copias:\n" + "\n".join(cambios)
+            + "\nFalta commitear y pushear en ~/Dev/agentes.",
+        }
+    }, ensure_ascii=False))
+sys.exit(0)
