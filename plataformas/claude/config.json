@@ -1,0 +1,16 @@
+{
+  "agentes": "~/.claude/agents",
+  "skills": [
+    "~/.claude/skills",
+    "~/.agents/skills"
+  ],
+  "marcadores": {
+    "cli": "claude",
+    "plataforma": "Claude Code",
+    "preguntar": "`AskUserQuestion`",
+    "via_delegar": "",
+    "reglas": "`CLAUDE.md`",
+    "reglas_ficha": "`CLAUDE.md`",
+    "agente_sesion": "agente de sesión"
+  }
+}

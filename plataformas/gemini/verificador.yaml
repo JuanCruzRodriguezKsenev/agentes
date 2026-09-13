@@ -1,0 +1,12 @@
+name: verificador
+description: {{descripcion}}
+model: flash
+mainAgent: false
+subagent: true
+commandExecutionPolicy: auto
+tools:
+  - view_file
+  - run_command
+  - grep_search
+  - find_by_name
+  - list_dir

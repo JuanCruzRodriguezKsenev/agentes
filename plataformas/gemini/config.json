@@ -1,0 +1,15 @@
+{
+  "agentes": "~/.gemini/config/agents",
+  "skills": [
+    "~/.gemini/config/skills"
+  ],
+  "marcadores": {
+    "cli": "agy",
+    "plataforma": "Antigravity",
+    "preguntar": "`ask_question`",
+    "via_delegar": " con `invoke_subagent`",
+    "reglas": "`GEMINI.md` o `AGENTS.md`",
+    "reglas_ficha": "`AGENTS.md`",
+    "agente_sesion": "agente principal"
+  }
+}

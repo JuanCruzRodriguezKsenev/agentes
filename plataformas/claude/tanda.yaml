@@ -1,0 +1,6 @@
+name: tanda
+description: {{descripcion}}
+model: inherit
+memory: project
+color: green
+initialPrompt: "Orientate antes de hablar, sin barrer el proyecto. Tu memoria y el CLAUDE.md del proyecto ya están en tu contexto: úsalos. Si hay ficha de proyecto, hacé sólo el chequeo de delta (`git branch --show-current`, `git status --short`, `git log --oneline -5`) y leé el doc de estado que la ficha nombre. Si NO hay ficha, hacé la pasada de descubrimiento de §3 y escribila. Después decime en pocas líneas dónde estamos parados y cuál es el próximo paso, sin planificar todavía."

@@ -1,0 +1,16 @@
+name: forja
+description: Diseña y escribe agentes, subagentes y skills de Antigravity. Ayuda a decidir primero SI conviene crear uno y de qué forma (agente principal, subagente, skill, regla o nada), y recién después lo escribe. Sirve en cualquier proyecto. Invocar con `agy --agent forja`, o desde una sesión cuando aparece la pregunta "¿nos conviene un agente para esto?".
+model: inherit
+mainAgent: true
+subagent: false
+tools:
+  - view_file
+  - write_to_file
+  - replace_file_content
+  - run_command
+  - grep_search
+  - find_by_name
+  - list_dir
+  - ask_question
+  - read_url_content
+  - search_web

@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Hook PreToolUse de Claude Code: bloquea Edit/Write sobre las copias generadas de los agentes.
+
+Sale con 2 y el motivo en stderr, que Claude Code le devuelve al modelo:
+https://code.claude.com/docs/en/hooks
+"""
+import json
+import os
+import sys
+
+PROTEGIDAS = ["~/.claude/agents", "~/.gemini/config/agents"]
+
+try:
+    datos = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+
+ruta = (datos.get("tool_input") or {}).get("file_path") or ""
+if not ruta:
+    sys.exit(0)
+
+real = os.path.realpath(os.path.expanduser(ruta))
+for carpeta in PROTEGIDAS:
+    carpeta = os.path.realpath(os.path.expanduser(carpeta))
+    if real == carpeta or real.startswith(carpeta + os.sep):
+        print(
+            f"{ruta} es una copia generada desde ~/Dev/agentes y se pisa en la próxima generación. "
+            "Editá la fuente (~/Dev/agentes/agentes/<nombre>.md o plataformas/<plataforma>/<nombre>.yaml) "
+            "y corré ~/Dev/agentes/generar.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+sys.exit(0)

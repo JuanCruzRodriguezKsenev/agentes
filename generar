@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Fuente única de agentes y skills propias para Claude Code y Antigravity.
+
+    ~/Dev/agentes/generar           escribe las copias de los agentes y los enlaces de las skills
+    ~/Dev/agentes/generar --check   no toca nada; sale con 1 si algo no coincide con la fuente
+
+Ver README.md.
+"""
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+RAIZ = Path(__file__).resolve().parent
+MARCA = "<!-- GENERADO desde ~/Dev/agentes"
+SOLO = re.compile(r"^<!-- solo: ([a-z]+) -->$")
+FIN_SOLO = "<!-- /solo -->"
+MARCADOR = re.compile(r"\{\{([a-z_]+)\}\}")
+
+
+class ErrorFuente(Exception):
+    pass
+
+
+def expandir(ruta):
+    return Path(os.path.expanduser(ruta))
+
+
+def leer_plataformas():
+    plataformas = {}
+    for config in sorted((RAIZ / "plataformas").glob("*/config.json")):
+        plataformas[config.parent.name] = json.loads(config.read_text())
+    if not plataformas:
+        raise ErrorFuente("no hay ninguna plataformas/<nombre>/config.json")
+    return plataformas
+
+
+def leer_fuente(ruta):
+    """Devuelve (meta, cuerpo). La meta son pares `clave: valor` usables como {{clave}}."""
+    texto = ruta.read_text()
+    meta = {}
+    if texto.startswith("---\n"):
+        fin = texto.find("\n---\n", 4)
+        if fin < 0:
+            raise ErrorFuente(f"{ruta.name}: frontmatter sin cerrar")
+        for linea in texto[4:fin].splitlines():
+            clave, separador, valor = linea.partition(": ")
+            if not separador:
+                raise ErrorFuente(f"{ruta.name}: línea de frontmatter inválida: {linea!r}")
+            meta[clave] = valor
+        texto = texto[fin + 5:]
+    return meta, texto.lstrip("\n")
+
+
+def filtrar(texto, plataforma, conocidas, origen):
+    """Quita los bloques <!-- solo: otra --> … <!-- /solo --> y las líneas de marca."""
+    salida, activa, desde = [], None, 0
+    for numero, linea in enumerate(texto.split("\n"), 1):
+        apertura = SOLO.match(linea)
+        if apertura:
+            if activa is not None:
+                raise ErrorFuente(f"{origen}:{numero}: bloque solo dentro de otro (abierto en la línea {desde})")
+            if apertura.group(1) not in conocidas:
+                raise ErrorFuente(f"{origen}:{numero}: plataforma desconocida {apertura.group(1)!r}")
+            activa, desde = apertura.group(1), numero
+        elif linea == FIN_SOLO:
+            if activa is None:
+                raise ErrorFuente(f"{origen}:{numero}: cierre de bloque sin apertura")
+            activa = None
+        elif activa is None or activa == plataforma:
+            salida.append(linea)
+    if activa is not None:
+        raise ErrorFuente(f"{origen}:{desde}: bloque solo sin cerrar")
+    return "\n".join(salida)
+
+
+def sustituir(texto, valores, origen):
+    def reemplazo(coincidencia):
+        clave = coincidencia.group(1)
+        if clave not in valores:
+            raise ErrorFuente(f"{origen}: marcador desconocido {{{{{clave}}}}}")
+        return valores[clave]
+
+    return MARCADOR.sub(reemplazo, texto)
+
+
+def construir(nombre, plataforma, config, conocidas):
+    fuente = RAIZ / "agentes" / f"{nombre}.md"
+    yaml = RAIZ / "plataformas" / plataforma / f"{nombre}.yaml"
+    if not yaml.exists():
+        raise ErrorFuente(f"falta plataformas/{plataforma}/{nombre}.yaml: cada agente lleva su frontmatter en cada plataforma")
+    meta, cuerpo = leer_fuente(fuente)
+    valores = dict(config["marcadores"], nombre=nombre)
+    for clave, valor in meta.items():
+        valores[clave] = sustituir(valor, valores, fuente.name)
+    frontmatter = sustituir(yaml.read_text(), valores, f"plataformas/{plataforma}/{nombre}.yaml").rstrip("\n")
+    cuerpo = sustituir(filtrar(cuerpo, plataforma, conocidas, fuente.name), valores, fuente.name)
+    aviso = f"{MARCA}/agentes/{nombre}.md — no editar acá: editá la fuente y corré ~/Dev/agentes/generar -->"
+    return f"---\n{frontmatter}\n---\n\n{aviso}\n\n{cuerpo}"
+
+
+def principal(argumentos):
+    check = "--check" in argumentos
+    if any(a != "--check" for a in argumentos):
+        print(__doc__)
+        return 2
+
+    plataformas = leer_plataformas()
+    conocidas = set(plataformas)
+    nombres = sorted(p.stem for p in (RAIZ / "agentes").glob("*.md"))
+    skills = sorted(p.name for p in (RAIZ / "skills").iterdir() if (p / "SKILL.md").is_file())
+
+    # Todo se construye antes de escribir nada: un error en la fuente no deja copias a medias.
+    copias = []
+    for plataforma, config in plataformas.items():
+        for nombre in nombres:
+            destino = expandir(config["agentes"]) / f"{nombre}.md"
+            copias.append((destino, construir(nombre, plataforma, config, conocidas)))
+
+    problemas = 0
+    for destino, contenido in copias:
+        actual = destino.read_text() if destino.exists() else None
+        if actual == contenido:
+            continue
+        if check:
+            print(f"{'DIFIERE' if actual is not None else 'FALTA':9} {destino}")
+            problemas += 1
+        else:
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            destino.write_text(contenido)
+            print(f"escrito   {destino}")
+
+    for plataforma, config in plataformas.items():
+        carpeta = expandir(config["agentes"])
+        for archivo in sorted(carpeta.glob("*.md")) if carpeta.is_dir() else []:
+            if archivo.stem in nombres:
+                continue
+            if MARCA in archivo.read_text():
+                if check:
+                    print(f"SOBRA     {archivo} (generado, pero ya no está en la fuente)")
+                    problemas += 1
+                else:
+                    archivo.unlink()
+                    print(f"borrado   {archivo}")
+            else:
+                print(f"aviso     {archivo} no sale de la fuente; no lo toco")
+
+        for carpeta_skills in config.get("skills", []):
+            base = expandir(carpeta_skills)
+            for skill in skills:
+                enlace, objetivo = base / skill, RAIZ / "skills" / skill
+                if enlace.is_symlink() and os.readlink(enlace) == str(objetivo):
+                    continue
+                if enlace.exists() and not enlace.is_symlink():
+                    print(f"CONFLICTO {enlace} existe y no es un enlace: movelo a {objetivo} a mano")
+                    problemas += 1
+                elif check:
+                    print(f"ENLACE    {enlace} no apunta a {objetivo}")
+                    problemas += 1
+                else:
+                    base.mkdir(parents=True, exist_ok=True)
+                    if enlace.is_symlink():
+                        enlace.unlink()
+                    enlace.symlink_to(objetivo)
+                    print(f"enlazado  {enlace} -> {objetivo}")
+
+    if check:
+        print("todo coincide con la fuente" if not problemas else f"{problemas} diferencia(s): corré ~/Dev/agentes/generar")
+    return 1 if problemas else 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(principal(sys.argv[1:]))
+    except ErrorFuente as error:
+        print(f"error en la fuente: {error}", file=sys.stderr)
+        sys.exit(2)
