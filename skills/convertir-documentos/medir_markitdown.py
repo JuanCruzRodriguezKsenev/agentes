@@ -1,6 +1,6 @@
 """Mide markitdown in-process. Lo llama db.py:
 
-    uvx --from 'markitdown[all]' python medir_markitdown.py REP SALIDA ARCHIVO...
+    uvx --from 'markitdown[all]==0.1.5' python medir_markitdown.py REP SALIDA ARCHIVO...
 
 Una línea JSON por archivo. La primera conversión de cada archivo es de calentamiento y no se cuenta.
 """

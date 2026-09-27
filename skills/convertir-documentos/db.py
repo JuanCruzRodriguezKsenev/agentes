@@ -9,6 +9,10 @@
     db.py stats [--formato F] [--tipo T]     resumen por formato, tipo y herramienta, y duelos
     db.py limpiar-pies [--paginas N] [--aplicar] ARCHIVO.md
                                              quita pies de página repetidos (deja el primero)
+    db.py verificar [--imagenes DIR] ORIGINAL SALIDA.md
+                                             chequeo página por página y selección para revisión visual
+    db.py marcar SALIDA.md ok|con-errores [--paginas 3,7]
+                                             deja el resultado de la verificación en el frontmatter
 
 Sólo biblioteca estándar. La base es datos/pruebas.csv y se toca únicamente desde acá.
 """
@@ -24,6 +28,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import zipfile
 from collections import Counter, defaultdict
 from datetime import date
@@ -33,10 +38,16 @@ RAIZ = Path(__file__).resolve().parent
 DB = RAIZ / "datos" / "pruebas.csv"
 NODE_DIR = Path.home() / ".local" / "share" / "convertir-documentos"
 
+# Fijada: desde 0.1.6 markitdown pega las palabras en PDF de Google Docs e inventa una tabla por
+# línea en PDF de diapositivas (0.1.5 no; pdfminer no influye). Antes de subirla, medir con `probar`
+# y revisar palabras pegadas. Informe en ~/Boveda/Sistema, 2026-09-26.
+MARKITDOWN = "markitdown[all]==0.1.5"
+
 COLUMNAS = [
     "id", "fecha", "lote", "equipo", "archivo", "origen", "formato", "tipo", "paginas",
     "imagenes", "bytes_entrada", "generador", "herramienta", "version", "modo",
     "repeticiones", "ms", "salida_chars", "estado", "calidad", "notas",
+    "paginas_marcadas", "cobertura_min",
 ]
 HERRAMIENTAS = ("anydoc", "markitdown")
 TIPOS = ("texto", "diapositivas", "escaneado", "ecuaciones", "tablas", "hoja-calculo", "libro", "correo", "otro")
@@ -61,6 +72,17 @@ SOPORTE = {
 # formatos de oficina en el benchmark que publica (sin verificar); PDF de diapositivas, por lo
 # observado con el material de la UNLP.
 PREVIA = {("pdf", "diapositivas"): "markitdown"}
+
+# Fuentes de matemática de LaTeX (Computer Modern, AMS, Latin Modern) y afines. Detectan las páginas
+# con fórmulas sin mirarlas: pdftotext saca los símbolos igual de mal que los conversores, así que
+# contar símbolos no sirve. Probado con 3 apuntes de Matemática C y 8 PDFs sin fórmulas, 2026-09-27.
+# Sin CMSY ni LASY: LaTeX las usa para las viñetas de cualquier lista, haya fórmulas o no.
+FUENTES_MATE = re.compile(r"^(CM(MI|EX|MIB)\d+|MSBM\d+|MSAM\d+|BBOLD\d+|Mathematica\d"
+                          r"|LMMath|LatinModernMath|STIX\w*Math|CambriaMath)")
+# Verificación página por página (prototipos de bibliotecario, ~/Boveda/Sistema/adjuntos, 2026-09-26).
+UMBRAL_COBERTURA = 0.9
+TOPE_VISUAL = 10
+SIMBOLOS_EXTRA = set("∈∉⊂⊆∪∩∀∃ⁿ₀₁₂₃ᵢⱼ")
 
 
 def soportan(formato):
@@ -117,6 +139,16 @@ def equipo():
     return f"{cpu} / {so or platform.system()}"
 
 
+def fuentes_mate(ruta, paginas):
+    """De las páginas indicadas (1-based), las que usan fuentes de matemática."""
+    def usa(*rango):
+        salida = salida_de(["pdffonts", *rango, str(ruta)]).splitlines()[2:]
+        return any(FUENTES_MATE.match(l.split()[0].partition("+")[2] or l.split()[0]) for l in salida if l.split())
+    if not usa():
+        return []
+    return [i for i in paginas if usa("-f", str(i), "-l", str(i))]
+
+
 def detectar(ruta, tipo=None):
     ext = ruta.suffix.lower().lstrip(".")
     fam = FAMILIA.get(ext, "")
@@ -140,6 +172,8 @@ def detectar(ruta, tipo=None):
             d["tipo"] = "escaneado"
         elif tam and float(tam[1]) > float(tam[2]):
             d["tipo"] = "diapositivas"
+        elif paginas and len(fuentes_mate(ruta, muestra := sorted({1 + k * paginas // 20 for k in range(20)}))) >= 0.3 * len(muestra):
+            d["tipo"] = "ecuaciones"
         else:
             d["tipo"] = "texto"
     elif zipfile.is_zipfile(ruta) and fam:
@@ -188,6 +222,10 @@ def recomendar(d, filas):
     if fam != "pdf" and tipo != "escaneado":
         niveles.append((f"{fmt} de cualquier tipo", lambda f: f["formato"] == fmt))
 
+    # En PDF sólo cuenta markitdown en la versión fijada: las calificaciones con 0.1.6+ miden la regresión.
+    version = MARKITDOWN.partition("==")[2]
+    filas = [f for f in filas if not (f["formato"] == "pdf" and f["herramienta"] == "markitdown"
+                                       and f["version"] != version)]
     for nombre, cond in niveles:
         sub = [f for f in filas if cond(f)]
         cal = {h: [int(f["calidad"]) for f in sub if f["herramienta"] == h and f["calidad"] != ""]
@@ -217,7 +255,7 @@ def comando(herramienta, archivo):
     if herramienta == "anydoc":
         cmd = ["pnpm", "dlx", "@firecrawl/anydoc", str(archivo), "-o", str(destino)]
     else:
-        cmd = ["uvx", "--from", "markitdown[all]", "markitdown", str(archivo), "-o", str(destino)]
+        cmd = ["uvx", "--from", MARKITDOWN, "markitdown", str(archivo), "-o", str(destino)]
     return shlex.join(cmd)
 
 
@@ -246,6 +284,9 @@ def cmd_recomendar(a):
         print(f"  comando: {comando(herramienta, ruta)}")
         if d["tipo"] == "escaneado":
             print("  ojo: parece escaneado. Ninguna hace OCR local: anydoc falla con NeedsOcr y markitdown devuelve vacío.")
+        if d["familia"] == "pdf" and d["tipo"] == "ecuaciones":
+            print("  ojo: matemática de LaTeX. Ninguna la convierte bien (anydoc cambia ∈ por 2 y ∀ por 8, markitdown "
+                  "deja (cid:NN) e inventa tablas). Avisale al usuario antes de convertir.")
         if herramienta == "markitdown" and d["familia"] == "pdf" and d["tipo"] == "diapositivas":
             print(f"  después: db.py limpiar-pies --paginas {d['paginas'] or 0} {shlex.quote(str(ruta.with_suffix('.md')))}")
         if "confianza alta" not in motivo and len(soportan(d["formato"])) == 2:
@@ -286,7 +327,7 @@ def cmd_probar(a):
     argumentos = [str(a.rep), str(salida), *map(str, rutas)]
     medidos = {
         "anydoc": correr_medidor(["node", str(RAIZ / "medir_anydoc.mjs"), *argumentos]),
-        "markitdown": correr_medidor(["uvx", "--from", "markitdown[all]", "python",
+        "markitdown": correr_medidor(["uvx", "--from", MARKITDOWN, "python",
                                       str(RAIZ / "medir_markitdown.py"), *argumentos]),
     }
 
@@ -310,12 +351,22 @@ def cmd_probar(a):
                 "herramienta": h, "version": r.get("version", ""), "modo": "inproc", "repeticiones": a.rep,
                 "ms": r.get("ms", ""), "salida_chars": r.get("chars", 0), "estado": r["estado"],
                 "calidad": "", "notas": re.sub(r"\s+", " ", r.get("error", "")).strip(),
+                **resumen_verificacion(ruta, r),
             })
             print(f"  #{siguiente} {h:<10} {r['estado']:<12} {r.get('ms', '')} ms  "
                   f"{r.get('chars', 0)} chars  {r.get('salida', '')}")
             siguiente += 1
     escribir(filas)
     print("\nRevisá las salidas y calificá cada fila: db.py calificar ID 0-5 'nota'")
+
+
+def resumen_verificacion(ruta, r):
+    if r["estado"] != "ok" or not r.get("salida") or not Path(r["salida"]).is_file():
+        return {}
+    v = verificar(ruta, Path(r["salida"]))
+    if not v:
+        return {}
+    return {"paginas_marcadas": f"{len(v['marcadas'])}/{v['paginas']}", "cobertura_min": f"{v['cobertura_min']:.2f}"}
 
 
 def cmd_calificar(a):
@@ -415,6 +466,151 @@ def cmd_limpiar(a):
     print(f"\nquitadas {len(lineas) - len(salida)} líneas; queda la primera aparición de cada pie")
 
 
+def palabras(texto):
+    return re.findall(r"[a-záéíóúüñ0-9]{3,}", unicodedata.normalize("NFC", texto).lower())
+
+
+def simbolos(texto):
+    return Counter(c for c in texto if unicodedata.category(c) in ("Sm", "So") or c in SIMBOLOS_EXTRA)
+
+
+def norm_linea(linea):
+    linea = re.sub(r"^\s*(?:[-*+>]\s+|#+\s+|\d+\.\s+)*", "", linea).replace("`", "")
+    return re.sub(r"\s+", " ", re.sub(r"\\([\\`*_{}\[\]()#+\-.!|<>])", r"\1", linea)).strip()
+
+
+def textos_por_pagina(ruta):
+    """Texto de cada página del original: páginas de un PDF, diapositivas de un pptx, un solo bloque en docx."""
+    ext = ruta.suffix.lower()
+    if ext == ".pdf":
+        paginas = salida_de(["pdftotext", "-q", "-layout", str(ruta), "-"], 600).split("\f")
+        return paginas[:-1] if paginas and not paginas[-1].strip() else paginas
+    if ext in (".pptx", ".docx") and zipfile.is_zipfile(ruta):
+        with zipfile.ZipFile(ruta) as z:
+            if ext == ".pptx":
+                partes = sorted((n for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
+                                key=lambda n: int(re.search(r"\d+", n)[0]))
+                return [" ".join(re.findall(r"<a:t>([^<]*)</a:t>", z.read(n).decode("utf-8", "replace")))
+                        for n in partes]
+            xml = z.read("word/document.xml").decode("utf-8", "replace")
+            return ["\n".join("".join(re.findall(r"<w:t(?: [^>]*)?>([^<]*)</w:t>", p))
+                              for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S))]
+    return None
+
+
+def verificar(original, salida):
+    """Chequeos automáticos por página. None si el formato no se puede verificar así."""
+    textos = textos_por_pagina(original)
+    if textos is None:
+        return None
+    md = unicodedata.normalize("NFC", salida.read_text(encoding="utf-8"))
+    md_palabras, md_simbolos = Counter(palabras(md)), simbolos(md)
+    md_lineas = {norm_linea(l) for l in md.splitlines()}
+    formulas = set(fuentes_mate(original, range(1, len(textos) + 1))) if original.suffix.lower() == ".pdf" else set()
+
+    coberturas, marcadas = {}, {}
+    for i, texto in enumerate(textos, 1):
+        motivos = []
+        ps = palabras(texto)
+        if len(ps) >= 5:
+            coberturas[i] = sum(1 for w in ps if md_palabras[w]) / len(ps)
+            if coberturas[i] < UMBRAL_COBERTURA:
+                motivos.append(f"cobertura {coberturas[i]:.2f}")
+        faltan = sum((simbolos(unicodedata.normalize("NFC", texto)) - md_simbolos).values())
+        if faltan > 2:
+            motivos.append(f"{faltan} símbolos que no están en la salida")
+        codigo = [norm_linea(l) for l in texto.splitlines() if re.search(r"[;{}]\s*$", l.strip()) and len(l.strip()) > 8]
+        perdidas = [c for c in codigo if c not in md_lineas]
+        if len(codigo) >= 3 and len(perdidas) / len(codigo) > 0.5:
+            motivos.append(f"{len(perdidas)} de {len(codigo)} líneas de código no quedaron como línea")
+        if motivos:
+            marcadas[i] = motivos
+
+    n = len(textos)
+    pegadas = sum(1 for l in md.splitlines() if re.search(r"[a-záéíóúüñ]{35,}", l))
+    # Revisión visual: las marcadas (peor cobertura primero), la primera, una del medio, la última y dos con fórmulas.
+    orden = sorted(marcadas, key=lambda i: coberturas.get(i, 1))
+    muestra = [p for p in dict.fromkeys([1, (n + 1) // 2, n]) if p]
+    extra = sorted(formulas - set(marcadas) - set(muestra))[:2]
+    visual = sorted(list(dict.fromkeys(muestra + extra + orden))[:TOPE_VISUAL])
+    return {
+        "paginas": n, "marcadas": marcadas, "formulas": sorted(formulas), "pegadas": pegadas,
+        "cobertura_min": min(coberturas.values(), default=1.0),
+        "cobertura_media": media(list(coberturas.values())) if coberturas else 1.0,
+        "peor": min(coberturas, key=coberturas.get) if coberturas else None,
+        "visual": visual, "sin_mirar": [i for i in orden if i not in visual],
+    }
+
+
+def rangos(nums):
+    grupos, inicio = [], None
+    for i, x in enumerate(nums):
+        if inicio is None:
+            inicio = x
+        if i + 1 == len(nums) or nums[i + 1] != x + 1:
+            grupos.append(str(inicio) if inicio == x else f"{inicio}-{x}")
+            inicio = None
+    return ", ".join(grupos)
+
+
+def cmd_verificar(a):
+    original, salida = Path(a.original).expanduser().resolve(), Path(a.salida).expanduser().resolve()
+    for r in (original, salida):
+        if not r.is_file():
+            sys.exit(f"no existe: {r}")
+    v = verificar(original, salida)
+    if v is None:
+        print(f"{original.suffix} no se verifica página por página (sólo PDF, pptx y docx): revisá la salida a mano.")
+        return
+    unidad = "págs" if original.suffix.lower() == ".pdf" else "diapositivas" if original.suffix.lower() == ".pptx" else "bloque"
+    print(f"{abreviar(original)} → {salida.name}")
+    peor = f", mínima {v['cobertura_min']:.2f} (pág {v['peor']})" if v["peor"] else ""
+    print(f"  {v['paginas']} {unidad} · cobertura media {v['cobertura_media']:.2f}{peor}")
+    if v["pegadas"] > 3:
+        print(f"  PALABRAS PEGADAS: {v['pegadas']} líneas con una palabra de 35+ letras. La salida no sirve: convertí con la otra.")
+    if v["marcadas"]:
+        print(f"  marcadas ({len(v['marcadas'])} de {v['paginas']}):")
+        for i, motivos in sorted(v["marcadas"].items()):
+            print(f"    pág {i}: " + "; ".join(motivos))
+    else:
+        print("  marcadas: ninguna")
+    if v["formulas"]:
+        print(f"  fórmulas (fuentes de LaTeX) en {len(v['formulas'])} págs: {rangos(v['formulas'])}. "
+              "Los chequeos automáticos no ven la matemática: sólo la revisión visual.")
+    if original.suffix.lower() != ".pdf":
+        print("  revisión visual: sólo PDF. Si hace falta, exportá a PDF (soffice --headless --convert-to pdf).")
+        return
+    print(f"  revisión visual: {rangos(v['visual'])}")
+    if v["sin_mirar"]:
+        print(f"  ojo: {len(v['sin_mirar'])} marcadas quedan fuera del tope de {TOPE_VISUAL}: {rangos(sorted(v['sin_mirar']))}")
+    if a.imagenes:
+        destino = Path(a.imagenes).expanduser()
+        destino.mkdir(parents=True, exist_ok=True)
+        for i in v["visual"]:
+            subprocess.run(["pdftoppm", "-f", str(i), "-l", str(i), "-r", "70", "-png", "-singlefile",
+                            str(original), str(destino / f"pag-{i:03d}")], check=True)
+        print(f"  imágenes: {abreviar(destino)}/pag-NNN.png")
+
+
+def cmd_marcar(a):
+    ruta = Path(a.archivo).expanduser()
+    texto = ruta.read_text(encoding="utf-8")
+    paginas = sorted({int(x) for x in re.findall(r"\d+", a.paginas)}) if a.paginas else []
+    if a.estado == "con-errores" and not paginas:
+        sys.exit("con-errores necesita --paginas")
+    campos = [f"verificado: {a.estado}"]
+    if paginas:
+        campos.append(f"paginas_con_errores: [{', '.join(map(str, paginas))}]")
+    m = re.match(r"---\n(.*?\n)?---\n", texto, re.S)
+    if m:
+        cuerpo = re.sub(r"^(verificado|paginas_con_errores):.*\n(?:[ \t]+-.*\n)*", "", m[1] or "", flags=re.M)
+        texto = "---\n" + cuerpo + "\n".join(campos) + "\n---\n" + texto[m.end():]
+    else:
+        texto = "---\n" + "\n".join(campos) + "\n---\n\n" + texto
+    ruta.write_text(texto, encoding="utf-8")
+    print(f"{ruta.name}: " + ", ".join(campos))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -454,6 +650,18 @@ def main():
     s.add_argument("--aplicar", action="store_true")
     s.add_argument("archivo")
     s.set_defaults(f=cmd_limpiar)
+
+    s = sub.add_parser("verificar")
+    s.add_argument("--imagenes", help="renderiza las páginas elegidas para la revisión visual en este directorio")
+    s.add_argument("original")
+    s.add_argument("salida")
+    s.set_defaults(f=cmd_verificar)
+
+    s = sub.add_parser("marcar")
+    s.add_argument("archivo")
+    s.add_argument("estado", choices=("ok", "con-errores"))
+    s.add_argument("--paginas", default="")
+    s.set_defaults(f=cmd_marcar)
 
     a = p.parse_args()
     a.f(a)
