@@ -58,8 +58,14 @@ decíselo y no uses esta skill.
 herramienta usar, en qué nivel de evidencia se basa, con qué confianza y el comando exacto.
 
 Si el tipo detectado está mal (por ejemplo un `.docx` que en realidad es casi todo tablas), repetí con
-`--tipo`. Tipos: `texto`, `diapositivas`, `escaneado`, `ecuaciones`, `tablas`, `hoja-calculo`, `libro`,
+`--tipo`. Tipos: `texto`, `codigo`, `diapositivas`, `escaneado`, `ecuaciones`, `tablas`, `hoja-calculo`, `libro`,
 `correo`, `otro`.
+
+`codigo` **no se detecta solo**: ponelo a mano con `--tipo codigo` en PDF de enunciados o apuntes con
+código (Java, assembler…), típicamente exportados de Google Docs. En esos anydoc aplasta el código en
+una línea o lo mete en tablas inventadas y markitdown lo deja línea por línea; mezclarlos con los PDF
+de prosa esconde la diferencia. Las señales obvias (líneas que terminan en `;`/`{`/`}`, fuentes
+monoespaciadas, el generador) no los separan: el assembler de `Practica-1.pdf` no tiene ninguna.
 
 Un PDF sale `ecuaciones` cuando al menos el 30 % de una muestra de sus páginas usa fuentes de
 matemática de LaTeX (`CMMI`, `CMEX`, `MSBM`…). **Ninguna herramienta convierte bien la matemática de
@@ -70,7 +76,9 @@ usuario antes de convertir**. Si está de acuerdo, convertí igual con la recome
 Cómo decide: si sólo una herramienta soporta la extensión, esa. Si no, busca calificaciones de las dos
 en este orden y usa el primer nivel donde haya: mismo formato y tipo → misma familia y tipo → mismo
 formato de cualquier tipo (salvo PDF, donde el tipo pesa demasiado). Gana la de mejor calidad media; si
-la diferencia es menor a 0,5, la más rápida. En PDF sólo cuentan las filas de markitdown medidas con la versión fijada. Sin calificaciones cae en la regla previa: anydoc, salvo
+la diferencia es menor a 0,5, la más rápida, y lo informa como **calidad empatada**, no con una
+confianza: la confianza sólo dice cuántos casos hay. En un PDF empatado, convertí con las dos, corré
+`verificar` sobre cada salida y quedate con la de menos páginas marcadas. En PDF sólo cuentan las filas de markitdown medidas con la versión fijada. Sin calificaciones cae en la regla previa: anydoc, salvo
 PDF de diapositivas, que va con markitdown.
 
 ### 2. Convertir

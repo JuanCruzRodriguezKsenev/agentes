@@ -19,6 +19,7 @@ Sólo biblioteca estándar. La base es datos/pruebas.csv y se toca únicamente d
 
 import argparse
 import csv
+import html
 import json
 import math
 import platform
@@ -50,7 +51,7 @@ COLUMNAS = [
     "paginas_marcadas", "cobertura_min",
 ]
 HERRAMIENTAS = ("anydoc", "markitdown")
-TIPOS = ("texto", "diapositivas", "escaneado", "ecuaciones", "tablas", "hoja-calculo", "libro", "correo", "otro")
+TIPOS = ("texto", "codigo", "diapositivas", "escaneado", "ecuaciones", "tablas", "hoja-calculo", "libro", "correo", "otro")
 
 FAMILIAS = {
     "texto-procesador": {"doc", "docx", "docm", "odt", "rtf"},
@@ -234,17 +235,19 @@ def recomendar(d, filas):
             continue
         ratios = pares_velocidad(sub)
         prom = {h: media(cal[h]) for h in HERRAMIENTAS}
+        n = min(len(v) for v in cal.values())
         if abs(prom["anydoc"] - prom["markitdown"]) >= 0.5:
             elegida = max(prom, key=prom.get)
+            confianza = "confianza " + ("alta" if n >= 5 else "media" if n >= 2 else "baja")
         else:
             elegida = "markitdown" if ratios and statistics.median(ratios) < 1 else "anydoc"
-        n = min(len(v) for v in cal.values())
-        confianza = "alta" if n >= 5 else "media" if n >= 2 else "baja"
+            confianza = (f"calidad empatada ({prom['anydoc']:.1f} contra {prom['markitdown']:.1f}), "
+                         "se elige por velocidad")
         evidencia = [f"calidad {h} {prom[h]:.1f} (n={len(cal[h])})" for h in HERRAMIENTAS]
         if ratios:
             evidencia.append(f"markitdown tarda {statistics.median(ratios):.1f}x lo de anydoc "
                              f"(mediana de {len(ratios)} pares in-process)")
-        return elegida, f"nivel {nombre}, confianza {confianza}", evidencia
+        return elegida, f"nivel {nombre}, {confianza}", evidencia
 
     elegida = PREVIA.get((fmt, tipo), "anydoc")
     return elegida, "sin calificaciones propias, regla previa", []
@@ -287,6 +290,9 @@ def cmd_recomendar(a):
         if d["familia"] == "pdf" and d["tipo"] == "ecuaciones":
             print("  ojo: matemática de LaTeX. Ninguna la convierte bien (anydoc cambia ∈ por 2 y ∀ por 8, markitdown "
                   "deja (cid:NN) e inventa tablas). Avisale al usuario antes de convertir.")
+        if "empatada" in motivo and d["familia"] == "pdf":
+            print("  ojo: empate. Convertí con las dos y corré db.py verificar sobre cada salida; quedate con la "
+                  "que tenga menos páginas marcadas.")
         if herramienta == "markitdown" and d["familia"] == "pdf" and d["tipo"] == "diapositivas":
             print(f"  después: db.py limpiar-pies --paginas {d['paginas'] or 0} {shlex.quote(str(ruta.with_suffix('.md')))}")
         if "confianza alta" not in motivo and len(soportan(d["formato"])) == 2:
@@ -490,11 +496,11 @@ def textos_por_pagina(ruta):
             if ext == ".pptx":
                 partes = sorted((n for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
                                 key=lambda n: int(re.search(r"\d+", n)[0]))
-                return [" ".join(re.findall(r"<a:t>([^<]*)</a:t>", z.read(n).decode("utf-8", "replace")))
+                return [html.unescape(" ".join(re.findall(r"<a:t>([^<]*)</a:t>", z.read(n).decode("utf-8", "replace"))))
                         for n in partes]
             xml = z.read("word/document.xml").decode("utf-8", "replace")
-            return ["\n".join("".join(re.findall(r"<w:t(?: [^>]*)?>([^<]*)</w:t>", p))
-                              for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S))]
+            return [html.unescape("\n".join("".join(re.findall(r"<w:t(?: [^>]*)?>([^<]*)</w:t>", p))
+                              for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S)))]
     return None
 
 
