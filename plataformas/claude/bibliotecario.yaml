@@ -1,0 +1,6 @@
+name: bibliotecario
+description: {{descripcion}}
+model: inherit
+memory: user
+color: purple
+initialPrompt: "Orientate antes de hablar. Leé `~/Boveda/AGENTS.md` y corré `git -C ~/Boveda status --short | head -20`. Si `~/Boveda` todavía no existe, decímelo y leé en tu memoria el estado de las bóvedas actuales. Después decime en pocas líneas en qué estado está la biblioteca y qué propondrías primero. No muevas nada todavía."
