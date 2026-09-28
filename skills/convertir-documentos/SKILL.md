@@ -1,6 +1,6 @@
 ---
 name: convertir-documentos
-description: Convierte documentos (PDF, Word, PowerPoint, Excel, OpenDocument, RTF, EPUB y correos .msg de Outlook) a Markdown eligiendo entre anydoc y markitdown según una base de pruebas propia, transcribe desde la imagen los PDF con ecuaciones, verifica cada conversión página por página contra el original y la marca con su huella, y registra pruebas nuevas para que la elección mejore con el uso. Usar cuando el usuario pida pasar, convertir o extraer a Markdown uno o más de esos archivos, cuando pregunte qué herramienta conviene para un documento, cuando pida verificar o marcar una conversión o consultar su estado de verificación, o cuando pida medir, comparar o registrar conversiones. No usar para HTML, CSV, JSON, XML, notebooks, código, texto plano, zips, imágenes ni audio.
+description: Convierte documentos (PDF, Word, PowerPoint, Excel, OpenDocument, RTF, EPUB y correos .msg de Outlook) a Markdown eligiendo entre anydoc y markitdown según una base de pruebas propia, transcribe desde la imagen los PDF con ecuaciones o figuras, verifica cada conversión página por página contra el original y la marca con su huella, y registra pruebas nuevas para que la elección mejore con el uso. Usar cuando el usuario pida pasar, convertir o extraer a Markdown uno o más de esos archivos, cuando pregunte qué herramienta conviene para un documento, cuando pida verificar o marcar una conversión o consultar su estado de verificación, o cuando pida medir, comparar o registrar conversiones. No usar para HTML, CSV, JSON, XML, notebooks, código, texto plano, zips, imágenes ni audio.
 ---
 
 # Convertir documentos a Markdown
@@ -46,7 +46,7 @@ decíselo y no uses esta skill.
 
 ```
 1. Recomendar   db.py recomendar ARCHIVO...
-2. Convertir    el comando que imprime; si el PDF tiene ecuaciones, transcribir desde la imagen (2b)
+2. Convertir    el comando que imprime; si tiene ecuaciones o figuras, transcribir desde la imagen (2b)
 3. Revisar      mirar la salida; limpiar pies si corresponde
 4. Verificar    filtro automático + revisión visual de TODAS las páginas (o del tramo) + marcar
 5. Registrar    db.py probar + calificar, cuando falta evidencia o lo piden
@@ -102,28 +102,42 @@ trailer `Reconversion: si` (ver «Commit en la bóveda»). Para varios archivos,
 
 ### 2b. Transcribir desde la imagen
 
-Para PDF con ecuaciones (o manuscritos) que van a ser fuente de una wiki. El `.md` lo escribe un
-modelo mirando cada página, con la matemática en LaTeX, y queda con una marca `<!-- pág N -->` por
-página. Esas marcas permiten verificar e ingerir **por tramos**. Un libro o un apunte largo se
-transcribe **capítulo por capítulo**, cuando se lo va a ingerir; no entero de una vez.
+Para PDF con ecuaciones (o manuscritos) y para las páginas con figuras (ver «Figuras»: casi todas
+las presentaciones), cuando van a ser fuente de una wiki. El `.md` lo escribe un modelo mirando cada
+página, con la matemática en LaTeX y cada figura en un bloque, y queda con una marca `<!-- pág N -->`
+por página. Esas marcas permiten verificar e ingerir **por tramos**. Un libro o un apunte largo se
+transcribe **capítulo por capítulo**, cuando se lo va a ingerir; no entero de una vez. Se puede
+transcribir **una sola página** (`--paginas 7`): sirve para arreglar la página que falló.
 
 1.  `db.py transcribir [--paginas A-B] ORIGINAL <temporal>/trans` renderiza las páginas del tramo a
-    150 ppp y lista los lotes de hasta 10 páginas.
+    150 ppp, lista los lotes de hasta 10 páginas y las páginas con imágenes.
 2.  **Un subagente `general-purpose` por lote**, porque las imágenes llenan el contexto. Pasale la
     ruta del directorio, las páginas del lote y este encargo:
     > Por cada página N del lote, mirá `pag-NNN.png` y escribí `pag-NNN.md` con su transcripción
     > exacta en Markdown. Reglas: el texto tal cual, en su orden, sin corregir erratas ni completar
     > nada; toda la matemática en LaTeX (`$…$` en línea, `$$…$$` en bloque), símbolo por símbolo
     > (≤ no es <, ≠ no es =, respetá subíndices, exponentes, ∀, ∈, grados); títulos con `#` sólo si
-    > en la página son títulos; tablas como tablas Markdown y matrices con `\begin{pmatrix}`; una
-    > figura o diagrama, como `[Figura: <qué muestra, en una línea>]`; sin marcas de agua, encabezados
-    > ni pies repetidos. Una página en blanco: `[página en blanco]`. Una parte ilegible:
-    > `[ilegible]`, nunca una conjetura. No escribas nada más que esos archivos.
+    > en la página son títulos; tablas como tablas Markdown y matrices con `\begin{pmatrix}`; sin
+    > marcas de agua, encabezados ni pies repetidos. **Cada figura** (diagrama, gráfico, captura,
+    > foto, ilustración, tabla o código que sea imagen) va en su lugar como un bloque
+    > `> [!figura] <Clase>: <qué muestra>`, con una línea `> Texto:` que copia **todo** el texto
+    > que tiene adentro y una descripción de lo que dice que no está en ese texto; el formato
+    > completo está en «Figuras» de la skill convertir-documentos. Una figura no se saltea nunca,
+    > aunque parezca no aportar: la sin información va como `> [!figura] Decorativa: <qué es>`.
+    > Una página en blanco: `[página en blanco]`. Una parte ilegible: `[ilegible]`, nunca una
+    > conjetura. No escribas nada más que esos archivos.
 3.  `db.py ensamblar [--conversor <modelo>] ORIGINAL <temporal>/trans SALIDA.md` arma el `.md` (o
     reemplaza esas páginas en uno que ya tiene marcas) y pone
     `conversor: transcripción desde la imagen (<modelo>)`. Si el `.md` existente es una conversión de
-    herramienta, sin marcas, pide `--reemplazar`: el cuerpo pasa a ser sólo lo transcripto, y lo de
-    antes queda en git. Las páginas que no se transcribieron no están en el `.md`.
+    herramienta, sin marcas, pide `--reemplazar`: le agrega las marcas (como `paginar`, abajo),
+    reemplaza las páginas transcriptas y **conserva las demás** como texto de herramienta, cada una
+    con la marca `<!-- pág N · sin transcribir: <conversor> -->`. Así el documento se sigue pudiendo
+    buscar entero, y esas páginas cuentan como no verificadas hasta que se las transcriba y verifique
+    (las guardas de matemática y de figuras las miran como texto de herramienta).
+    *   `db.py paginar SALIDA.md` agrega esas marcas a una conversión de herramienta sin transcribir
+        nada: con los saltos de página que deja markitdown, o alineando cada párrafo con el texto de
+        su página. Hace falta para verificar por tramos una conversión de herramienta. Cambia el
+        cuerpo, así que la verificación anterior deja de valer.
 4.  **Verificá con el paso 4, con OTROS subagentes**, nunca con el que transcribió: quien cometió un
     error tiende a volver a leerlo igual.
 
@@ -143,8 +157,8 @@ transcribe **capítulo por capítulo**, cuando se lo va a ingerir; no entero de 
 *   **PDF de diapositivas con markitdown**: repite el pie de página en cada diapositiva. Corré
     `db.py limpiar-pies --paginas N SALIDA.md`, revisá que los candidatos sean pies de verdad y recién
     ahí repetí con `--aplicar`. Deja la primera aparición para no perder la atribución.
-*   Lo que está en imágenes (diagramas, UML, capturas de código) se pierde con las dos: mencionalo si el
-    documento tiene muchas.
+*   Lo que está en imágenes (diagramas, UML, capturas de código) se pierde con las dos. **Una figura
+    perdida es un error de la conversión** (ver «Figuras»): esas páginas se transcriben (2b).
 
 ### 4. Verificar
 
@@ -159,13 +173,15 @@ las dos (ver «Las dos verificaciones»).
     *   **símbolos**: los símbolos matemáticos del original que no están en la salida;
     *   **código**: las líneas que terminan en `;`, `{` o `}` y no quedaron como línea en la salida. Es
         el código aplastado, que la cobertura no detecta.
-    Además cuenta las palabras pegadas y lista las páginas con fórmulas. **Es un filtro, no un
+    Además cuenta las palabras pegadas, lista las páginas con fórmulas y las páginas con imágenes, y
+    avisa cuáles de estas no tienen ningún bloque `[!figura]` en el `.md` (error seguro). **Es un filtro, no un
     veredicto: ninguna métrica alcanza para un `ok`.** La de palabras no ve la matemática, y así se
     marcaron `ok` conversiones rotas.
 2.  **Palabras pegadas** → no hace falta mirar nada más: convertí con la otra herramienta y volvé a
     verificar.
 3.  **Revisión visual de TODAS las páginas del tramo** (sólo PDF; un pptx o docx se exporta a PDF con
-    `soffice --headless --convert-to pdf`). `verificar --imagenes` renderiza todas a 110 ppp y las
+    `soffice --headless --convert-to pdf`; si `soffice` no está instalado, decíselo al usuario: sin
+    PDF no hay revisión visual ni transcripción). `verificar --imagenes` renderiza todas a 110 ppp y las
     parte en lotes de 10. **El 10 es el tamaño del lote, no un tope**: un documento de 40 páginas son
     4 subagentes. Si son demasiadas para esta sesión, verificá un tramo (`--paginas`) y decíselo al
     usuario; nunca marques `ok` páginas que nadie miró. Un subagente `general-purpose` por lote, con
@@ -174,9 +190,16 @@ las dos (ver «Las dos verificaciones»).
     > `<!-- pág N -->`, o un grep de una frase). Compará **todo**: que el texto esté completo y en
     > orden, y la matemática símbolo por símbolo (≤ contra <, ≠ contra =, ∈, ∀, subíndices,
     > exponentes, signos, fracciones, matrices). Buscá también palabras pegadas, código aplastado y
-    > tablas inventadas. Respondé **una línea por cada página de tu lote, sin saltear ninguna**:
-    > `pág N: ok` o `pág N: problema — <qué, con el texto del .md y lo que dice la imagen>`. No
-    > arregles nada.
+    > tablas inventadas. **Contá las figuras de la página** (diagramas, gráficos, capturas, fotos,
+    > ilustraciones, tablas o código que sean imagen, y las decorativas que no son parte de la
+    > plantilla; el fondo, las franjas y los logos que se repiten en todas las páginas no cuentan) y,
+    > por cada una, buscá su bloque `> [!figura]` en esa página del `.md`: que la clase sea la
+    > correcta, que la línea `Texto:` tenga **todo** el texto de la figura (cada rótulo, valor,
+    > nombre de eje o de nodo) y que la descripción diga bien lo que muestra (qué se conecta con qué,
+    > hacia dónde, qué valores). Una figura sin bloque, o con un rótulo de menos, es un problema.
+    > Respondé **una línea por cada página de tu lote, sin saltear ninguna**:
+    > `pág N: ok · figuras: K` o `pág N: problema — <qué, con el texto del .md y lo que dice la
+    > imagen> · figuras: K`, con K = las figuras que viste (0 si ninguna). No arregles nada.
     Juntá las respuestas de todos los lotes en un archivo de informe temporal.
 4.  **Si fallan páginas**: en una conversión de herramienta, convertí con la otra (si soporta el
     formato) y verificá de nuevo; en un PDF con ecuaciones, transcribí esas páginas (2b). En una
@@ -187,16 +210,57 @@ las dos (ver «Las dos verificaciones»).
         con la lista de páginas.
     *   **Se niega si al informe le falta alguna página del tramo**, o si el informe es anterior a la
         última modificación del `.md`.
-    *   **Guarda de matemática**: si la conversión no es una transcripción, las páginas del PDF con
-        fuentes de LaTeX cuentan como error aunque el informe diga ok.
+    *   **Se niega si una línea no dice `figuras: K`**: sin la cuenta no se sabe si se perdió alguna.
+    *   **Guarda de matemática** (estricta, Juan 2026-09-28): las páginas que siguen siendo texto de
+        herramienta (toda la conversión, o las marcadas `sin transcribir`) y usan fuentes de LaTeX
+        cuentan como error aunque el informe diga ok.
+    *   **Guarda de figuras**: una página cuenta como error si el verificador vio más figuras que
+        bloques `[!figura]` tiene esa página en el `.md`, o si el original tiene imágenes (fuera de
+        la plantilla) y la página ningún bloque. En una conversión de herramienta no hay bloques, así
+        que toda página con figuras queda con error.
     *   Anota el md5 del cuerpo (sin el frontmatter). Por tramos, además, el md5 de cada tramo; los
         tramos anteriores que siguen iguales se conservan. Verificar por tramos necesita las marcas de
-        página, así que sólo anda con transcripciones: una conversión de herramienta se verifica
-        entera.
+        página: las tiene una transcripción, y a una conversión de herramienta se las pone `paginar`.
     *   `db.py marcar SALIDA.md --pendiente` la vuelve a `pendiente`, por ejemplo al migrar.
 6.  **Consultá** con `db.py estado [--paginas A-B] SALIDA.md`: recalcula el md5 y dice qué vale hoy.
     Sale con 0 sólo si la verificación del agente está en `ok`, vigente y sin errores en esas
     páginas. Es el control que usa `apuntes` antes de ingerir.
+
+### Figuras
+
+**Toda figura perdida cuenta como error, tenga o no información** (Juan, 2026-09-28). Una figura es
+un diagrama, gráfico, captura, foto, ilustración, o una tabla o código que están como imagen. No son
+figuras la plantilla: el fondo, las franjas y los logos que se repiten en todas las páginas.
+
+En una transcripción, cada figura va **en su lugar del texto**, como un callout de Obsidian:
+
+```markdown
+> [!figura] Gráfico: reflexión de la base canónica respecto del eje x
+> Texto: «y» · «x» · «Reflexión respecto del eje x» · «$e_2$» · «$e_1$=L($e_1$)» · «L($e_2$)»
+> Ejes cartesianos: x horizontal, y vertical. Desde el origen, tres vectores del mismo largo:
+> $e_1$ en rojo sobre el eje x hacia la derecha; $e_2$ en azul hacia arriba; $L(e_2)$ en violeta
+> hacia abajo. Arriba a la derecha, un recuadro con el texto «Reflexión respecto del eje x».
+```
+
+*   **Título**: la clase y qué muestra, en una línea. Clases: `Diagrama`, `Gráfico`, `Captura`,
+    `Foto`, `Ilustración`, `Tabla`, `Código`, `Decorativa`.
+*   **`Texto:`** copia todo el texto que la figura tiene adentro, en orden de lectura, cada trozo
+    entre «», con la matemática en LaTeX. `Texto: —` si no tiene. Es lo que la hace buscable y lo que
+    el verificador compara rótulo por rótulo.
+*   **Descripción**: lo que la figura dice y el texto no. Un diagrama: cada nodo y cada relación
+    (`A → B`, con el rótulo de la flecha). Un gráfico: ejes, escalas, cada curva o vector, los puntos
+    notables con sus valores. Una tabla como imagen: la tabla en Markdown dentro del callout. Una
+    captura de código: el código en un bloque dentro del callout.
+*   **`Decorativa`**: una imagen sin información que no es plantilla. Una línea, sin `Texto:`. Sirve
+    también cuando el filtro detecta una imagen que a la vista es un fondo.
+
+El chequeo es doble: el verificador visual cuenta las figuras de cada página y revisa cada bloque
+(paso 4.3), y `marcar` compara esa cuenta con los bloques de la página y con las imágenes del
+original (paso 4.5). El filtro automático sólo ve imágenes: un diagrama dibujado con formas lo
+encuentra únicamente la revisión visual.
+
+El bloque no incluye la imagen. Si más adelante se decide guardar recortes, van como una línea
+`> ![[…]]` dentro del mismo bloque, sin cambiar el resto.
 
 ### Las dos verificaciones
 
@@ -212,30 +276,56 @@ verificacion_agente_errores: [3, 7]
 verificacion_agente_md5: "<md5 del cuerpo, sin el frontmatter>"
 verificacion_agente_tramos: ["1-24 <md5 del tramo>"] # sólo por tramos
 verificacion_juan: false                            # casilla de Obsidian: SÓLO la tilda Juan
+verificacion_juan_tramos: ["1-24 <md5 del tramo>"]  # tramos que Juan DIJO que verificó
 ```
 
 *   **La huella es del cuerpo**, porque marcar cambia el frontmatter (y Obsidian también).
 *   **Si el md5 del cuerpo deja de coincidir, las dos valen como `pendiente`** (salvo los tramos cuyo
     md5 sigue igual). No hace falta resetear nada a mano: `estado` lo recalcula.
-*   **Ningún agente pone `verificacion_juan: true`, ni por pedido.** Juan la tilda en Obsidian.
-    `marcar` la conserva si el cuerpo no cambió desde la marca anterior, y la pone en `false` si
-    cambió. Es lo único que un agente hace con ese campo.
-*   La verificación de Juan es por documento entero; no tiene tramos.
+*   **Ningún agente pone `verificacion_juan: true`, ni por pedido.** Juan la tilda en Obsidian, y
+    vale para el documento entero. `marcar` la conserva si el cuerpo no cambió desde la marca
+    anterior, y la pone en `false` si cambió. Es lo único que un agente hace con ese campo.
+*   **La verificación de Juan por tramos** va en `verificacion_juan_tramos`, con el md5 de cada
+    tramo. La escribe un agente **sólo cuando Juan lo dice explícitamente** ("verifiqué el cap. 3",
+    "las págs. 1–24 están bien"), con `db.py juan SALIDA.md --paginas A-B`. Se niega si la
+    verificación del agente no está en `ok` y vigente para ese tramo: Juan verifica después. Un tramo
+    de Juan sigue vigente mientras no cambie su md5, aunque se transcriban o se sumen otras páginas;
+    `marcar` conserva los vigentes y borra los que cambiaron. `estado --paginas` lo usa en la línea
+    `juan:` y en `wiki:` (definitiva o provisional).
 *   El esquema viejo (`verificado:` y `paginas_con_errores:`) vale como `pendiente`, y `marcar` lo
     borra al escribir el nuevo.
+
+### Si Juan encuentra un error
+
+**Juan no edita el `.md`** (decidido por tanda, 2026-09-28: Juan no edita archivos crudos). Te dice
+qué está mal y dónde:
+
+1.  Corregí esas páginas desde la imagen: transcribilas de nuevo (2b, `--paginas` con esas páginas)
+    y `ensamblar`. Si la conversión era de herramienta, esas páginas pasan a ser transcripción.
+2.  Verificalas con **otro** subagente (paso 4), no con el que corrigió, y `marcar` con
+    `--paginas`.
+3.  Decile a Juan qué cambió, para que vuelva a verificar. Su casilla, o su tramo si el error estaba
+    ahí, ya cayó sola: cambió el md5.
+4.  En la bóveda, las páginas de wiki que salieron de ese tramo se rehacen (apuntes, Revisar,
+    chequeo 8).
 
 ### Commit en la bóveda: trailer `Reconversion: si`
 
 `~/Boveda` tiene un hook `commit-msg` que rechaza modificar (`M`), renombrar con cambios (`R<100`) o
-borrar (`D`) un `*.pdf` o una conversión con la verificación del agente en `ok`, salvo que el mensaje
-lleve el trailer `Reconversion: si`. Lo escribe `bibliotecario`; la especificación está en
-`AGENTS.md`. (Hasta que `bibliotecario` lo pase al esquema nuevo, el hook mira `verificado: ok`.)
+borrar (`D`) un `*.pdf` o una conversión verificada en `HEAD`, salvo que el mensaje lleve el trailer
+`Reconversion: si`. Un `M` que cambia **sólo el frontmatter** (el cuerpo es igual en `HEAD` y en el
+índice) pasa sin trailer: es lo que hacen `marcar`, `juan` y la casilla de Juan en Obsidian. Lo
+escribe `bibliotecario`; la especificación está en `AGENTS.md`. (Mientras `bibliotecario` no lo pase
+al esquema nuevo, el hook mira `verificado: ok` y no tiene la excepción: ahí cualquier `M` sobre una
+protegida lleva el trailer.)
 
-- **Lleva el trailer** el commit que incluye una conversión **que ya estaba commiteada** y que
-  regeneraste o transcribiste (pasos 2 y 2b) o reverificaste (paso 4: `marcar` cambia su frontmatter,
-y eso es un `M`).
-  Para saberlo: `git -C ~/Boveda ls-files --error-unmatch <ruta.md>` sale con 0 si ya estaba.
-- **No lo lleva** una conversión nueva (un `A` en git), aunque en el mismo paso la marques.
+- **Lleva el trailer** el commit que cambia el **cuerpo** de una conversión **que ya estaba
+  commiteada**: la regeneraste, la transcribiste, la paginaste o la corregiste (pasos 2 y 2b,
+  `paginar`, «Si Juan encuentra un error»). Para saberlo:
+  `git -C ~/Boveda ls-files --error-unmatch <ruta.md>` sale con 0 si ya estaba. Ante la duda,
+  ponelo: sobra, pero no rompe nada.
+- **No lo lleva** una conversión nueva (un `A` en git), aunque en el mismo paso la marques, ni un
+  commit que sólo cambia el frontmatter (con el hook nuevo).
 - Va como último párrafo del mensaje, en una línea propia. Con dos `-m`, git lo arma solo:
   `git -C ~/Boveda commit -m 'conversión: reconvertir <archivo>' -m 'Reconversion: si' -- <rutas>`.
 - Es sólo para conversiones. Esta skill **nunca** modifica, renombra ni borra un original: si un

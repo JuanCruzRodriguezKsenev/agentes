@@ -15,13 +15,16 @@
     db.py transcribir [--paginas A-B] ORIGINAL DIR
                                              renderiza las páginas para transcribirlas desde la imagen
     db.py ensamblar [--reemplazar] [--conversor C] ORIGINAL DIR SALIDA.md
-                                             arma o actualiza el .md con DIR/pag-NNN.md, entre marcas de página
+                                             arma o actualiza el .md con DIR/pag-NNN.md, entre marcas de página;
+                                             en una conversión de herramienta conserva las demás páginas
+    db.py paginar [--original O] SALIDA.md   agrega marcas de página a una conversión de herramienta
     db.py marcar SALIDA.md --revision INFORME.txt [--paginas A-B]
     db.py marcar SALIDA.md --pendiente
                                              verificación del agente en el frontmatter, con el md5 del cuerpo
     db.py estado [--paginas A-B] SALIDA.md   verificación vigente del agente y de Juan; sale con 0 sólo
                                              si la del agente está en ok y vigente para esas páginas
     db.py huella [--paginas A-B] SALIDA.md   md5 del cuerpo (o del tramo) que se anota en la wiki
+    db.py juan SALIDA.md --paginas A-B       anota un tramo que Juan DIJO que verificó (sólo por pedido explícito)
 
 Sólo biblioteca estándar. La base es datos/pruebas.csv y se toca únicamente desde acá.
 """
@@ -97,8 +100,16 @@ UMBRAL_COBERTURA = 0.9
 LOTE = 10
 DPI_REVISION = 110   # a 70 ppp no se distinguen subíndices, ≤ de < ni ≠ de =
 DPI_TRANSCRIBIR = 150
-MARCA_PAGINA = re.compile(r"^<!-- pág (\d+) -->[ \t]*$", re.M)
+# `<!-- pág N -->` en una página transcripta; `<!-- pág N · sin transcribir: <conversor> -->` en una
+# página que sigue siendo texto de herramienta (paginar, o ensamblar sobre una conversión de herramienta).
+MARCA_PAGINA = re.compile(r"^<!-- pág (\d+)(?: · sin transcribir: ([^>]*?))? -->[ \t]*$", re.M)
 TRANSCRIPCION = "transcripción desde la imagen"
+# Una figura en el .md es un callout `> [!figura] …` (ver SKILL.md, «Figuras»).
+BLOQUE_FIGURA = re.compile(r"^>[ \t]*\[!figura\]", re.M | re.I)
+# Imágenes que no cuentan como figura: plantilla (la misma imagen en la mitad de las páginas o más),
+# franjas (un lado de menos de 60 px o una proporción mayor que 8:1).
+FIGURA_LADO_MIN = 60
+FIGURA_PROPORCION_MAX = 8
 SIMBOLOS_EXTRA = set("∈∉⊂⊆∪∩∀∃ⁿ₀₁₂₃ᵢⱼ")
 
 
@@ -164,6 +175,46 @@ def fuentes_mate(ruta, paginas):
     if not usa():
         return []
     return [i for i in paginas if usa("-f", str(i), "-l", str(i))]
+
+
+def figuras_raster(ruta):
+    """{página: imágenes que cuentan como figura}, en PDF (pdfimages) y pptx (media de cada diapositiva).
+
+    Sólo ve imágenes: un diagrama dibujado con formas no aparece acá y lo tiene que contar la revisión
+    visual. Descarta la plantilla (la misma imagen, por tamaño y peso, en la mitad de las páginas o más,
+    mínimo 3) y las franjas (un lado de menos de FIGURA_LADO_MIN px o proporción mayor que
+    FIGURA_PROPORCION_MAX). No se usa el object ID: PowerPoint repite el mismo fondo con IDs distintos."""
+    ext = ruta.suffix.lower()
+    por_pagina = defaultdict(list)   # página → [firma]
+    if ext == ".pdf":
+        for linea in salida_de(["pdfimages", "-list", str(ruta)], 300).splitlines()[2:]:
+            c = linea.split()
+            if len(c) < 14 or c[2] != "image":
+                continue
+            ancho, alto = int(c[3]), int(c[4])
+            if min(ancho, alto) < FIGURA_LADO_MIN or max(ancho, alto) / max(min(ancho, alto), 1) > FIGURA_PROPORCION_MAX:
+                continue
+            por_pagina[int(c[0])].append((ancho, alto, c[-2]))
+        n = len(textos_por_pagina(ruta) or [])
+    elif ext == ".pptx" and zipfile.is_zipfile(ruta):
+        with zipfile.ZipFile(ruta) as z:
+            nombres = set(z.namelist())
+            diapos = sorted((x for x in nombres if re.fullmatch(r"ppt/slides/slide\d+\.xml", x)),
+                            key=lambda x: int(re.search(r"\d+", x)[0]))
+            for i, d in enumerate(diapos, 1):
+                rels = d.replace("slides/", "slides/_rels/") + ".rels"
+                if rels in nombres:
+                    xml = z.read(rels).decode("utf-8", "replace")
+                    for destino in re.findall(r'Target="\.\./media/([^"]+)"', xml):
+                        if not re.search(r"\.(wav|mp3|mp4|m4a|avi|wmv|mov)$", destino, re.I):
+                            por_pagina[i].append(destino)
+        n = len(diapos)
+    else:
+        return {}
+    en_paginas = Counter(f for fs in por_pagina.values() for f in set(fs))
+    plantilla = {f for f, k in en_paginas.items() if k >= max(3, n / 2)}
+    return {p: len([f for f in fs if f not in plantilla]) for p, fs in por_pagina.items()
+            if any(f not in plantilla for f in fs)}
 
 
 def detectar(ruta, tipo=None):
@@ -623,6 +674,14 @@ def cmd_verificar(a):
     if formulas:
         print(f"  fórmulas (fuentes de LaTeX) en {len(formulas)} págs: {rangos(formulas)}. "
               "Los chequeos automáticos no ven la matemática: sólo la revisión visual.")
+    cuerpo = partir(salida.read_text(encoding="utf-8"))[1]
+    raster, bloques = figuras_raster(original), bloques_figura(cuerpo)
+    con_imagen = [i for i in tramo if raster.get(i)]
+    if con_imagen:
+        sin_bloque = [i for i in con_imagen if not bloques.get(i)]
+        print(f"  figuras (imágenes que no son plantilla) en {len(con_imagen)} págs: {rangos(con_imagen)}"
+              + (f"; sin ningún bloque [!figura] en el .md: {rangos(sin_bloque)} → error seguro" if sin_bloque else "")
+              + ". Los diagramas dibujados con formas no se ven acá: los cuenta la revisión visual.")
     print("  Esto es un filtro previo: ninguna métrica alcanza para un ok. El ok sale de mirar TODAS las páginas del tramo.")
     if original.suffix.lower() != ".pdf":
         print("  revisión visual: sólo PDF. Exportá a PDF (soffice --headless --convert-to pdf) y verificá ese.")
@@ -651,12 +710,18 @@ def cmd_transcribir(a):
     print(f"Un subagente por lote; cada uno escribe {abreviar(destino)}/pag-NNN.md por página:")
     for g in lotes(tramo):
         print(f"  {rangos(g)}")
+    raster = [i for i in tramo if figuras_raster(original).get(i)]
+    if raster:
+        print(f"Págs con imágenes (fuera de la plantilla): {rangos(raster)}. Cada una lleva al menos un bloque "
+              "`> [!figura]`; si la imagen resulta ser un fondo, `> [!figura] Decorativa: …`.")
     print(f"Después: db.py ensamblar {shlex.quote(str(original))} {shlex.quote(str(destino))} SALIDA.md")
 
 
 # --- Frontmatter de la conversión y verificación ------------------------------------------------
 
-CLAVES_VIEJAS = re.compile(r"^(verificado|paginas_con_errores|verificacion_agente\w*|verificacion_juan):")
+# Todas las claves de verificación, las del esquema viejo incluidas. `marcar` las reescribe juntas.
+CLAVES_VERIFICACION = re.compile(r"^(verificado|paginas_con_errores|verificacion_agente\w*|verificacion_juan\w*):")
+CLAVE_JUAN_TRAMOS = re.compile(r"^verificacion_juan_tramos:")
 
 
 def partir(texto):
@@ -683,11 +748,11 @@ def valores(fm):
     return d
 
 
-def sin_claves(fm):
-    """El frontmatter sin las claves de verificación (con sus listas en bloque)."""
+def sin_claves(fm, patron=CLAVES_VERIFICACION):
+    """El frontmatter sin las claves que matchean `patron` (con sus listas en bloque)."""
     salida, saltando = [], False
     for linea in fm.splitlines(keepends=True):
-        if CLAVES_VIEJAS.match(linea):
+        if patron.match(linea):
             saltando = True
             continue
         if saltando and re.match(r"^\s+-", linea):
@@ -703,10 +768,23 @@ def md5(texto):
 
 
 def secciones(cuerpo):
-    """{página: texto de esa página, con su marca} según las marcas <!-- pág N -->."""
+    """{página: texto de esa página, con su marca} según las marcas <!-- pág N … -->."""
     marcas = list(MARCA_PAGINA.finditer(cuerpo))
     return {int(m[1]): cuerpo[m.start():(marcas[i + 1].start() if i + 1 < len(marcas) else len(cuerpo))]
             for i, m in enumerate(marcas)}
+
+
+def paginas_de_herramienta(cuerpo, conversor, n):
+    """Páginas cuyo texto sigue siendo de anydoc o markitdown (no transcripto desde la imagen)."""
+    marcas = list(MARCA_PAGINA.finditer(cuerpo))
+    if marcas:
+        return {int(m[1]) for m in marcas if m[2] is not None}
+    return set() if str(conversor).startswith(TRANSCRIPCION) else set(range(1, (n or 0) + 1))
+
+
+def bloques_figura(cuerpo):
+    """{página: bloques `> [!figura]`}. Vacío si el .md no tiene marcas de página."""
+    return {p: len(BLOQUE_FIGURA.findall(t)) for p, t in secciones(cuerpo).items()}
 
 
 def huella_tramo(cuerpo, paginas):
@@ -715,6 +793,28 @@ def huella_tramo(cuerpo, paginas):
     if faltan:
         return None, faltan
     return md5("".join(sec[p] for p in paginas)), []
+
+
+def tramos_vigentes(cuerpo, tramos):
+    """De una lista `["1-24 <md5>", …]`, los tramos cuyo md5 sigue igual, y las páginas que cubren."""
+    validos, paginas = [], set()
+    for t in tramos or []:
+        rango, _, h = str(t).rpartition(" ")
+        if rango and huella_tramo(cuerpo, leer_rango(rango))[0] == h:
+            validos.append(t)
+            paginas |= set(leer_rango(rango))
+    return validos, paginas
+
+
+def sumar_tramo(vigentes, tramo, h):
+    """Los tramos vigentes que no se pisan con `tramo`, más `tramo`, ordenados."""
+    tramos = [t for t in vigentes if not set(leer_rango(t.rpartition(" ")[0])) & set(tramo)]
+    tramos.append(f"{rangos(tramo).replace(', ', ',')} {h}")
+    return sorted(tramos, key=lambda t: leer_rango(t.rpartition(" ")[0])[0])
+
+
+def lista_yaml(clave, tramos):
+    return f"{clave}: [" + ", ".join(f'"{t}"' for t in tramos) + "]"
 
 
 def original_de(ruta, fm, forzado=None):
@@ -754,22 +854,24 @@ def vigencia(ruta, forzado=None):
                 miradas = set(leer_rango(paginas))
             tramos_validos = list(tramos)
         else:
-            for t in tramos:
-                rango, _, h = t.rpartition(" ")
-                if huella_tramo(cuerpo, leer_rango(rango))[0] == h:
-                    tramos_validos.append(t)
-                    miradas |= set(leer_rango(rango))
+            tramos_validos, miradas = tramos_vigentes(cuerpo, tramos)
             motivo = "el cuerpo cambió después de marcar" + (
                 f"; siguen vigentes los tramos {', '.join(t.rpartition(' ')[0] for t in tramos_validos)}" if tramos_validos else "")
         errores &= miradas if "todas" not in miradas else errores
     elif "verificado" in d:
         motivo = "esquema viejo (verificado:), vale como pendiente"
+    # Juan: la casilla vale para el documento entero mientras el cuerpo sea el que marcó el agente; sus
+    # tramos (los anota un agente cuando Juan lo dice) valen mientras no cambie el md5 de cada tramo.
+    juan_anotados = d.get("verificacion_juan_tramos") or []
+    juan_tramos, juan_paginas = tramos_vigentes(cuerpo, juan_anotados)
     return {
         "texto": texto, "fm": fm, "cuerpo": cuerpo, "valores": d, "md5": actual, "anotado": anotado,
         "original": original, "n": n, "estado": estado or "pendiente", "miradas": miradas,
         "errores": errores, "tramos": tramos_validos, "motivo": motivo,
         "juan": d.get("verificacion_juan") == "true" and anotado == actual,
         "juan_caducada": d.get("verificacion_juan") == "true" and anotado != actual,
+        "juan_tramos": juan_tramos, "juan_paginas": juan_paginas,
+        "juan_caducos": [t for t in juan_anotados if t not in juan_tramos],
     }
 
 
@@ -783,24 +885,45 @@ def cubre(v, paginas):
     return objetivo <= v["miradas"] and not (objetivo & v["errores"])
 
 
+def cubre_juan(v, paginas):
+    """¿Juan verificó esas páginas (None = el documento entero), con la casilla o con tramos vigentes?"""
+    if v["juan"]:
+        return True
+    objetivo = set(paginas) if paginas else (set(range(1, v["n"] + 1)) if v["n"] else None)
+    return bool(objetivo) and objetivo <= v["juan_paginas"]
+
+
 def leer_informe(ruta):
-    """{página: (ok?, detalle)} de las líneas `pág N: ok` / `pág N: problema — …`."""
+    """{página: (ok?, detalle, figuras)} de las líneas `pág N: ok · figuras: K` / `pág N: problema — … · figuras: K`.
+
+    figuras es None si la línea no dice cuántas vio el verificador."""
     resultado = {}
     for linea in Path(ruta).expanduser().read_text(encoding="utf-8").splitlines():
         m = re.match(r"^\W*p[áa]g\.?\s*(\d+)\s*:\s*(ok\b|problema\b)(.*)$", linea.strip(), re.I)
         if m:
             i, ok = int(m[1]), m[2].lower() == "ok"
-            previo = resultado.get(i, (True, ""))
-            resultado[i] = (previo[0] and ok, (previo[1] + " " + m[3].strip(" —-:")).strip())
+            f = re.search(r"figuras?\s*:\s*(\d+)", m[3], re.I)
+            figuras = int(f[1]) if f else None
+            resto = re.sub(r"[·,;]?\s*figuras?\s*:\s*\d+", "", m[3], flags=re.I).strip(" —-:·")
+            previo = resultado.get(i, (True, "", None))
+            if previo[2] is not None and figuras is not None:
+                figuras = max(figuras, previo[2])
+            resultado[i] = (previo[0] and ok, (previo[1] + " " + resto).strip(),
+                            figuras if figuras is not None else previo[2])
     return resultado
 
 
-def escribir_campos(ruta, fm, cuerpo, campos):
-    fm = sin_claves(fm)
+def escribir_campos(ruta, fm, cuerpo, campos, patron=CLAVES_VERIFICACION):
+    fm = sin_claves(fm, patron)
     if fm and not fm.endswith("\n"):
         fm += "\n"
-    ruta.write_text("---\n" + fm + "\n".join(campos) + "\n---\n" + (cuerpo if cuerpo.startswith("\n") else "\n" + cuerpo),
-                    encoding="utf-8")
+    # El cuerpo va tal cual, byte a byte: el hook de la bóveda deja pasar sin trailer un cambio sólo de frontmatter.
+    ruta.write_text("---\n" + fm + "\n".join(campos) + "\n---\n" + cuerpo, encoding="utf-8")
+
+
+def falta_marcas(faltan):
+    return (f"hacen falta marcas `<!-- pág N -->` en el .md, y faltan las de {rangos(faltan)}. Las pone el modo "
+            "transcribir; a una conversión de anydoc o markitdown se las agrega `db.py paginar`.")
 
 
 def cmd_marcar(a):
@@ -808,20 +931,26 @@ def cmd_marcar(a):
     v = vigencia(ruta, a.original)
     hoy = date.today().isoformat()
     # verificacion_juan: ningún agente la pone en true. Se conserva sólo si el cuerpo no cambió desde la
-    # última marca; si cambió (o no había marca), queda en false.
+    # última marca; si cambió (o no había marca), queda en false. Sus tramos vigentes se conservan.
     juan = "true" if v["valores"].get("verificacion_juan") == "true" and v["anotado"] == v["md5"] else "false"
     if v["valores"].get("verificacion_juan") == "true" and juan == "false":
         print("verificacion_juan: el cuerpo cambió desde que Juan la tildó → vuelve a false")
+    for t in v["juan_caducos"]:
+        print(f"verificacion_juan_tramos: el tramo {t.rpartition(' ')[0]} cambió desde que Juan lo verificó → se borra")
+    campos_juan = [f"verificacion_juan: {juan}"]
+    if v["juan_tramos"]:
+        campos_juan.append(lista_yaml("verificacion_juan_tramos", v["juan_tramos"]))
 
     if a.pendiente:
         campos = ["verificacion_agente: pendiente", f"verificacion_agente_fecha: {hoy}",
-                  f'verificacion_agente_md5: "{v["md5"]}"', f"verificacion_juan: {juan}"]
+                  f'verificacion_agente_md5: "{v["md5"]}"', *campos_juan]
         escribir_campos(ruta, v["fm"], v["cuerpo"], campos)
         print(f"{ruta.name}: " + ", ".join(campos))
         return
 
     if not a.revision:
-        sys.exit("marcar necesita --revision INFORME.txt (una línea `pág N: ok|problema — …` por página mirada) o --pendiente")
+        sys.exit("marcar necesita --revision INFORME.txt (una línea `pág N: ok|problema — … · figuras: K` por página "
+                 "mirada) o --pendiente")
     n, original = v["n"], v["original"]
     if not n:
         sys.exit(f"no pude contar las páginas del original ({original}); pasalo con --original")
@@ -837,35 +966,48 @@ def cmd_marcar(a):
     if faltan:
         sys.exit(f"el informe no dice nada de {len(faltan)} págs del tramo: {rangos(faltan)}. "
                  "Un ok exige haber mirado TODAS: revisalas y volvé a marcar (o marcá un tramo más chico).")
-    errores_tramo = {p for p in tramo if not informe[p][0]}
-    if tramo != list(range(1, n + 1)) and huella_tramo(v["cuerpo"], tramo)[0] is None:
-        sys.exit(f"verificar por tramos necesita marcas `<!-- pág N -->` en el .md, y faltan las de "
-                 f"{rangos(huella_tramo(v['cuerpo'], tramo)[1])}. Las pone el modo transcribir; una conversión "
-                 "de anydoc o markitdown se verifica entera.")
-
-    # Guarda: ninguna herramienta saca bien la matemática de LaTeX. Si la conversión no es una
-    # transcripción, una página con fuentes de matemática no puede quedar ok aunque el informe lo diga.
-    conversor = str(v["valores"].get("conversor", ""))
-    if original.suffix.lower() == ".pdf" and not conversor.startswith(TRANSCRIPCION):
-        forzadas = [p for p in fuentes_mate(original, tramo) if p not in errores_tramo]
-        if forzadas:
-            errores_tramo |= set(forzadas)
-            print(f"GUARDA: {len(forzadas)} págs con fuentes de LaTeX ({rangos(forzadas)}) y la conversión es de "
-                  f"«{conversor or 'desconocido'}», no una transcripción → cuentan como error aunque el informe diga ok. "
-                  "Para esas páginas: transcribir desde la imagen.")
-
+    sin_cuenta = [p for p in tramo if informe[p][2] is None]
+    if sin_cuenta:
+        sys.exit(f"el informe no dice cuántas figuras vio en {len(sin_cuenta)} págs: {rangos(sin_cuenta)}. Cada línea "
+                 "lleva `figuras: K` (0 si la página no tiene): sin esa cuenta no se puede saber si se perdió alguna.")
     completo = tramo == list(range(1, n + 1))
+    if not completo and huella_tramo(v["cuerpo"], tramo)[0] is None:
+        sys.exit("verificar por tramos: " + falta_marcas(huella_tramo(v["cuerpo"], tramo)[1]))
+    errores_tramo = {p for p in tramo if not informe[p][0]}
+    guardas = defaultdict(list)
+
+    # Guarda de matemática: ninguna herramienta saca bien la matemática de LaTeX. Una página que sigue
+    # siendo texto de herramienta y usa fuentes de matemática no puede quedar ok aunque el informe lo diga.
+    conversor = str(v["valores"].get("conversor", ""))
+    herramienta = paginas_de_herramienta(v["cuerpo"], conversor, n)
+    if original.suffix.lower() == ".pdf" and herramienta & set(tramo):
+        for p in fuentes_mate(original, sorted(herramienta & set(tramo))):
+            guardas[p].append("fuentes de LaTeX y el texto es de herramienta, no una transcripción")
+
+    # Guarda de figuras: toda figura perdida es un error, tenga o no información (Juan, 2026-09-28).
+    # Una figura está si su página tiene un bloque `> [!figura]` por cada figura que vio el verificador;
+    # además, una página con imágenes en el original y ningún bloque es error aunque el informe diga 0.
+    bloques, raster = bloques_figura(v["cuerpo"]), figuras_raster(original)
+    for p in tramo:
+        vistas, hay = informe[p][2], bloques.get(p, 0)
+        if vistas > hay:
+            guardas[p].append(f"el verificador vio {vistas} figura(s) y el .md tiene {hay} bloque(s) [!figura]")
+        elif raster.get(p) and not hay:
+            guardas[p].append(f"el original tiene {raster[p]} imagen(es) y el .md ningún bloque [!figura]")
+    for p, motivos in sorted(guardas.items()):
+        errores_tramo.add(p)
+    if guardas:
+        print(f"GUARDAS: {len(guardas)} págs cuentan como error aunque el informe diga ok (se arreglan transcribiendo "
+              "esas páginas desde la imagen, con sus figuras):")
+        for p, motivos in sorted(guardas.items()):
+            print(f"  pág {p}: " + "; ".join(motivos))
+
     if completo:
         miradas_txt, tramos, errores = "todas", [], errores_tramo
     else:
-        h, sin_marca = huella_tramo(v["cuerpo"], tramo)
-        if h is None:
-            sys.exit(f"verificar por tramos necesita marcas `<!-- pág N -->` en el .md, y faltan las de {rangos(sin_marca)}. "
-                     "Las pone el modo transcribir; una conversión de anydoc o markitdown se verifica entera.")
+        h = huella_tramo(v["cuerpo"], tramo)[0]
         # Se conservan los tramos anteriores que siguen vigentes y no se pisan con este.
-        tramos = [t for t in v["tramos"] if not set(leer_rango(t.rpartition(" ")[0])) & set(tramo)]
-        tramos.append(f"{rangos(tramo).replace(', ', ',')} {h}")
-        tramos.sort(key=lambda t: leer_rango(t.rpartition(" ")[0])[0])
+        tramos = sumar_tramo(v["tramos"], tramo, h)
         miradas = set()
         for t in tramos:
             miradas |= set(leer_rango(t.rpartition(" ")[0]))
@@ -878,13 +1020,34 @@ def cmd_marcar(a):
               f"verificacion_agente_errores: [{', '.join(map(str, sorted(errores)))}]",
               f'verificacion_agente_md5: "{v["md5"]}"']
     if tramos:
-        campos.append("verificacion_agente_tramos: [" + ", ".join(f'"{t}"' for t in tramos) + "]")
-    campos.append(f"verificacion_juan: {juan}")
+        campos.append(lista_yaml("verificacion_agente_tramos", tramos))
+    campos += campos_juan
     escribir_campos(ruta, v["fm"], v["cuerpo"], campos)
     print(f"{ruta.name}: " + "\n  ".join([""] + campos))
     for p in sorted(errores_tramo):
         if not informe[p][0]:
             print(f"  pág {p}: {informe[p][1]}")
+
+
+def cmd_juan(a):
+    """Anota un tramo verificado por Juan. Sólo cuando Juan lo dice explícitamente ("verifiqué el cap. 3")."""
+    ruta = Path(a.archivo).expanduser().resolve()
+    v = vigencia(ruta, a.original)
+    paginas = leer_rango(a.paginas)
+    if v["n"] and paginas[-1] > v["n"]:
+        sys.exit(f"el original tiene {v['n']} páginas y el tramo llega a {paginas[-1]}")
+    h, faltan = huella_tramo(v["cuerpo"], paginas)
+    if h is None:
+        sys.exit("la verificación de Juan por tramos: " + falta_marcas(faltan) +
+                 " Para el documento entero, Juan tilda la casilla verificacion_juan en Obsidian.")
+    if not (v["estado"] in ("ok", "con-errores") and cubre(v, paginas)):
+        sys.exit(f"págs {rangos(paginas)}: la verificación del agente no está en ok y vigente para ese tramo "
+                 "(db.py estado --paginas). Juan verifica después del agente: primero corregir y reverificar.")
+    tramos = sumar_tramo(v["juan_tramos"], paginas, h)
+    escribir_campos(ruta, v["fm"], v["cuerpo"], [lista_yaml("verificacion_juan_tramos", tramos)], CLAVE_JUAN_TRAMOS)
+    print(f"{ruta.name}: verificacion_juan_tramos: {', '.join(t.rpartition(' ')[0] for t in tramos)}")
+    for t in v["juan_caducos"]:
+        print(f"  se borra el tramo {t.rpartition(' ')[0]}: cambió desde que Juan lo verificó")
 
 
 def cmd_estado(a):
@@ -897,12 +1060,23 @@ def cmd_estado(a):
         else (rangos(sorted(v["miradas"])) or "ninguna")
     print(f"  agente: anotado {anotado} · vigente: miradas {miradas}, errores [{', '.join(map(str, sorted(v['errores'])))}]"
           + (f" · {v['motivo']}" if v["motivo"] else " · md5 vigente" if v["anotado"] == v["md5"] else ""))
-    print("  juan: " + ("verificada" if v["juan"] else
-                        "tildada pero el cuerpo cambió después → vale como pendiente" if v["juan_caducada"] else "sin verificar"))
+    juan_ok = cubre_juan(v, paginas)
+    detalle = []
+    if v["juan"]:
+        detalle.append("casilla tildada, documento entero")
+    elif v["juan_caducada"]:
+        detalle.append("casilla tildada pero el cuerpo cambió después → no vale")
+    if v["juan_tramos"]:
+        detalle.append("tramos vigentes " + ", ".join(t.rpartition(" ")[0] for t in v["juan_tramos"]))
+    if v["juan_caducos"]:
+        detalle.append("tramos caducos (cambió su md5) " + ", ".join(t.rpartition(" ")[0] for t in v["juan_caducos"]))
+    print("  juan: " + ("verificada" if juan_ok else "sin verificar") +
+          (f" {'págs ' + rangos(paginas) if paginas else 'el documento'}" if juan_ok or paginas else "") +
+          (f" ({'; '.join(detalle)})" if detalle else ""))
     ok = v["estado"] in ("ok", "con-errores") and cubre(v, paginas)
     print(f"  ingerible: {'sí' if ok else 'NO'}" + ("" if ok else " — hace falta verificacion_agente en ok, vigente y sin errores en "
                                                           + (f"págs {rangos(paginas)}" if paginas else "todo el documento")))
-    print(f"  wiki: {'definitiva' if v['juan'] else 'provisional (falta la verificación de Juan)'}")
+    print(f"  wiki: {'definitiva' if ok and juan_ok else 'provisional (falta la verificación de Juan)' if ok else 'no se ingiere'}")
     h = huella_tramo(v["cuerpo"], paginas)[0] if paginas and secciones(v["cuerpo"]) else v["md5"]
     print(f"  huella: {h}" + (f" (tramo {rangos(paginas)})" if paginas and secciones(v['cuerpo']) else " (cuerpo)"))
     sys.exit(0 if ok else 1)
@@ -919,6 +1093,78 @@ def cmd_huella(a):
         print(md5(cuerpo))
 
 
+# --- Marcas de página en una conversión de herramienta ------------------------------------------
+
+def alinear(cuerpo, textos):
+    """Parte `cuerpo` en len(textos) trozos, en orden, según a qué página se parece cada párrafo.
+
+    Programación dinámica monótona: cada párrafo va a la página cuyas palabras más comparte (pesadas
+    por lo raras que son entre páginas), sin volver atrás. Para conversiones sin saltos de página."""
+    bloques = re.split(r"\n[ \t]*\n", cuerpo.strip())
+    pags = [set(palabras(t)) for t in textos]
+    df = Counter(w for s in pags for w in s)
+    P = len(pags)
+    menos_inf = float("-inf")
+    f, atras, mudos = [0.0] * P, [], []
+    for b in bloques:
+        ws = [w for w in set(palabras(b)) if df[w]]
+        total = sum(1 / df[w] for w in ws)
+        mudos.append(not total)
+        puntaje = [sum(1 / df[w] for w in ws if w in pags[p]) / total if total else 0.0 for p in range(P)]
+        # mejor[p]: el mejor f[q] con q ≤ p; ante empate, el q más alto (el párrafo sigue en la misma página).
+        mejor, desde, maximo, arg = [], [], menos_inf, 0
+        for p in range(P):
+            if f[p] >= maximo:
+                maximo, arg = f[p], p
+            mejor.append(maximo)
+            desde.append(arg)
+        atras.append(desde)
+        f = [mejor[p] + puntaje[p] for p in range(P)]
+    p = max(range(P), key=lambda q: (f[q], -q)) if bloques else 0
+    asignado = []
+    for desde in reversed(atras):
+        asignado.append(p)
+        p = desde[p]
+    asignado.reverse()
+    # Un párrafo sin palabras que decidan (números, separadores) va con el anterior, no con el siguiente.
+    for i in range(1, len(asignado)):
+        if mudos[i]:
+            asignado[i] = asignado[i - 1]
+    trozos = [[] for _ in range(P)]
+    for b, p in zip(bloques, asignado):
+        trozos[p].append(b)
+    return ["\n\n".join(t) for t in trozos]
+
+
+def paginar_cuerpo(original, cuerpo, conversor):
+    """El cuerpo de una conversión de herramienta con una marca `<!-- pág N · sin transcribir: … -->` por página."""
+    textos = textos_por_pagina(original) if original and original.is_file() else None
+    if not textos or original.suffix.lower() not in (".pdf", ".pptx"):
+        sys.exit(f"paginar necesita el original en PDF o pptx ({original}); pasalo con --original")
+    n = len(textos)
+    if cuerpo.count("\f") == n - 1:           # markitdown deja un salto de página entre páginas de un PDF
+        trozos, como = cuerpo.split("\f"), "saltos de página"
+    else:
+        trozos, como = alinear(cuerpo.replace("\f", "\n\n"), textos), "alineación con el texto de cada página"
+    etiqueta = re.sub(r"[<>]", "", str(conversor or "herramienta")).strip()
+    vacias = [p for p, t in enumerate(trozos, 1) if not t.strip()]
+    print(f"paginado por {como}: {n} págs" + (f"; sin texto en la conversión: {rangos(vacias)}" if vacias else ""))
+    return "\n" + "".join(f"<!-- pág {p} · sin transcribir: {etiqueta} -->\n\n{t.strip() or '[sin texto en la conversión]'}\n\n"
+                          for p, t in enumerate(trozos, 1)).rstrip("\n") + "\n"
+
+
+def cmd_paginar(a):
+    ruta = Path(a.archivo).expanduser().resolve()
+    fm, cuerpo = partir(ruta.read_text(encoding="utf-8"))
+    if secciones(cuerpo):
+        sys.exit(f"{ruta.name} ya tiene marcas de página")
+    conversor = valores(fm).get("conversor", "")
+    nuevo = paginar_cuerpo(original_de(ruta, fm, a.original), cuerpo, conversor)
+    ruta.write_text("---\n" + fm + "---\n" + nuevo, encoding="utf-8")
+    print(f"{ruta.name}: marcas agregadas. El cuerpo cambió, así que la verificación vuelve a valer como pendiente "
+          "(db.py estado); en la bóveda, el commit lleva `Reconversion: si`.")
+
+
 def cmd_ensamblar(a):
     original, dir_ = Path(a.original).expanduser().resolve(), Path(a.dir).expanduser()
     salida = Path(a.salida).expanduser()
@@ -933,11 +1179,12 @@ def cmd_ensamblar(a):
     if salida.exists():
         fm, cuerpo = partir(salida.read_text(encoding="utf-8"))
         sec = secciones(cuerpo)
-        if not sec and cuerpo.strip() and not a.reemplazar:
-            sys.exit(f"{salida.name} ya tiene un cuerpo sin marcas de página (una conversión de herramienta). "
-                     "Con --reemplazar se cambia entero por la transcripción; lo anterior queda en git.")
-        if not sec:
-            sec = {}
+        if not sec and cuerpo.strip():
+            if not a.reemplazar:
+                sys.exit(f"{salida.name} ya tiene un cuerpo sin marcas de página (una conversión de herramienta). Con "
+                         "--reemplazar se le agregan las marcas, las páginas transcriptas reemplazan a las suyas y el resto "
+                         "queda como texto de herramienta, marcado `sin transcribir`.")
+            sec = secciones(paginar_cuerpo(original, cuerpo, valores(fm).get("conversor", "")))
         sec.update({p: f"<!-- pág {p} -->\n\n{t}\n\n" for p, t in nuevas.items()})
         fm = re.sub(r"^conversor:.*\n", "", fm, flags=re.M) + f"conversor: {conversor}\n"
     else:
@@ -946,7 +1193,9 @@ def cmd_ensamblar(a):
               f"revisado: {date.today().isoformat()}\n")
     cuerpo = "".join(sec[p] if sec[p].endswith("\n\n") else sec[p].rstrip("\n") + "\n\n" for p in sorted(sec))
     salida.write_text("---\n" + fm + "---\n\n" + cuerpo.rstrip("\n") + "\n", encoding="utf-8")
-    print(f"{salida.name}: {len(nuevas)} págs escritas ({rangos(sorted(nuevas))}); el .md tiene {rangos(sorted(sec))}")
+    resto = sorted(paginas_de_herramienta(cuerpo, conversor, None))
+    print(f"{salida.name}: {len(nuevas)} págs escritas ({rangos(sorted(nuevas))}); el .md tiene {rangos(sorted(sec))}"
+          + (f"; siguen sin transcribir (texto de herramienta, se puede buscar): {rangos(resto)}" if resto else ""))
     print("La transcripción todavía no está verificada: db.py verificar --paginas … y marcar, con OTRO subagente.")
 
 
@@ -1006,7 +1255,8 @@ def main():
     s.set_defaults(f=cmd_transcribir)
 
     s = sub.add_parser("ensamblar")
-    s.add_argument("--reemplazar", action="store_true", help="pisa un cuerpo sin marcas de página")
+    s.add_argument("--reemplazar", action="store_true",
+                   help="en una conversión de herramienta sin marcas: las agrega y conserva las páginas no transcriptas")
     s.add_argument("--conversor", default="", help="modelo que transcribió, p. ej. claude-opus-5-5")
     s.add_argument("original")
     s.add_argument("dir")
@@ -1032,6 +1282,17 @@ def main():
     s.add_argument("--paginas")
     s.add_argument("archivo")
     s.set_defaults(f=cmd_huella)
+
+    s = sub.add_parser("juan")
+    s.add_argument("--paginas", required=True, help="tramo que Juan dijo que verificó (1-24)")
+    s.add_argument("--original")
+    s.add_argument("archivo")
+    s.set_defaults(f=cmd_juan)
+
+    s = sub.add_parser("paginar")
+    s.add_argument("--original")
+    s.add_argument("archivo")
+    s.set_defaults(f=cmd_paginar)
 
     a = p.parse_args()
     a.f(a)

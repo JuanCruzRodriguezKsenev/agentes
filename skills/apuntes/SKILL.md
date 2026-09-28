@@ -78,8 +78,9 @@ provisionales.
 ```
 
 La sección `Fuentes por verificar` la mantenés vos: una línea por conversión ingerida sin la
-verificación de Juan vigente, con enlace al `.md` (con ruta completa y alias). Actualizala en cada
-Ingerir y en cada Revisar. El resto de la nota es del usuario: no lo toques.
+verificación de Juan vigente, con enlace al `.md` (con ruta completa y alias) y, si se ingirió por
+rangos, los rangos que le faltan (`págs. 25–40`). Actualizala en cada Ingerir, en cada Revisar y
+cuando Juan dice que verificó algo. El resto de la nota es del usuario: no lo toques.
 
 ### Nombres y enlaces
 
@@ -124,13 +125,23 @@ Hay dos dimensiones, y no se mezclan:
 Juan (el esquema está en `convertir-documentos`, «Las dos verificaciones»). Para ingerir alcanza con
 la del agente; la de Juan llega después. Por eso:
 
-- Una página es `provisional: true` mientras alguna de sus fuentes no tenga la verificación de Juan
-  vigente. Lo dice la línea `juan:` de
-  `python3 ~/Dev/agentes/skills/convertir-documentos/db.py estado <conversión>.md`.
+- Una página es `provisional: true` mientras alguna de sus fuentes (o de sus tramos, si se ingirió
+  por rango) no tenga la verificación de Juan vigente. Por cada entrada de `fuentes_md5`, corré
+  `python3 ~/Dev/agentes/skills/convertir-documentos/db.py estado [--paginas a-b] <conversión>.md`:
+  la línea `wiki:` dice `definitiva` o `provisional`. Juan verifica con la casilla (el documento
+  entero) o por tramos.
+- **Cuando Juan te dice que verificó un tramo** ("verifiqué el cap. 3", "las págs. 1–24 están
+  bien"), anotalo con `db.py juan <conversión>.md --paginas a-b` (si nombra un capítulo, sacá el
+  rango del índice y confirmáselo). Es la única forma en que un agente escribe algo de Juan, y sólo
+  cuando él lo dice. Después recalculá `provisional` en las páginas que salieron de ese tramo y
+  actualizá `Fuentes por verificar`. Si dice que verificó el documento entero, pedile que tilde la
+  casilla `verificacion_juan` en Obsidian.
+- **Si Juan encuentra un error en una fuente, no edita el `.md`**: te lo dice. Seguí «Si Juan
+  encuentra un error» de `convertir-documentos` (corregir desde la imagen, verificar con otro
+  subagente, que Juan vuelva a verificar). El md5 cambia, y las páginas que salieron de ese tramo se
+  rehacen (Revisar, chequeo 8).
 - **Una página `provisional` no puede ser `verificado`.** Si el usuario la aprueba, decile qué fuentes
   le faltan verificar.
-- Si la verificación de Juan cambia el cuerpo de una conversión, su md5 cambia y las páginas que
-  salieron de ella se rehacen (Revisar, chequeo 8).
 
 **Estado.** Las conversiones ya se verifican, pero lo que sintetizás encima no. Si un error entra a
 una página y otras lo citan, se propaga por toda la wiki. El `estado` corta esa cadena.
@@ -205,9 +216,10 @@ son fuente de la wiki y ofrecé Repasar o Consultar.
     - Anotá la línea `huella:` para `fuentes_md5`, y la línea `juan:` para `provisional`.
 2.  **Leer.** Leé la conversión entera, o el tramo del rango. La fuente ya está verificada página por
     página, así que el texto y la matemática de una transcripción se pueden usar tal cual (ver
-    Matemática). Leé como imagen sólo lo que el `.md` no trae: las figuras (`[Figura: …]` en una
-    transcripción) de las que vayas a decir algo, hasta 10 por ingesta. De una figura que no miraste
-    no afirmes nada.
+    Matemática). Las figuras están en bloques `> [!figura]`, con su texto y su descripción, y
+    también se verificaron: lo que dice el bloque se puede usar. Si necesitás afirmar de una figura
+    algo que el bloque no dice, leela como imagen (hasta 10 por ingesta) y citala `, de la imagen`.
+    De una figura que no miraste no afirmes más que lo que dice su bloque.
 3.  **Ideas centrales.** Elegí de 3 a 5.
     - **En una ingesta suelta**, mostráselas al usuario en un mensaje y esperá que las corrija: es el
       único momento en que participa.
@@ -254,7 +266,8 @@ ese tema. Es una ingesta suelta: el usuario corrige las ideas centrales.
   reingerís ese tramo.
 - **El control del paso 1 es por rango**: alcanza con que el agente haya verificado ese tramo
   (`estado --paginas a-b`), aunque el resto de la fuente no lo esté. Verificar por tramos necesita una
-  transcripción con marcas de página; una conversión de herramienta se verifica entera.
+  conversión con marcas de página: una transcripción, o una conversión de herramienta pasada por
+  `db.py paginar`.
 - El tope de 10 figuras leídas como imagen se cuenta **por rango**.
 - `log.md` y el commit llevan el rango (pasos 6 y 8).
 
@@ -327,7 +340,8 @@ Buscás:
 5.  **citas a conversiones**: ninguna cita puede apuntar a un `.md` con `tipo: conversión`. Se
     corrige apuntando al original, a la misma página;
 6.  **`verificado` y `provisional` a la vez**: una página no puede ser `verificado` si alguna de sus
-    fuentes no tiene la verificación de Juan vigente (`db.py estado`, línea `juan:`). Recalculá
+    fuentes (o tramos) no tiene la verificación de Juan vigente (`db.py estado [--paginas a-b]`,
+    línea `wiki:`). Recalculá
     `provisional` en todas las páginas y actualizá `Fuentes por verificar` de la nota central. Si una
     página `verificado` resulta provisional, vuelve a `sin-verificar`;
 7.  **divergencia con la página gemela**: por cada página con `Ver también en <materia>`, abrí la
@@ -337,7 +351,7 @@ Buscás:
     la cita de cada una. Si es error, se corrige la página que lo tiene;
 8.  **fuente que cambió**: por cada entrada de `fuentes_md5`, compará su md5 con el que imprime hoy
     `db.py huella [--paginas a-b] <conversión>.md`. Si difiere, la conversión cambió (por ejemplo,
-    Juan la corrigió al verificarla): esa página, y lo que dice de esa fuente, **se rehace** desde la
+    se corrigió un error que encontró Juan): esa página, y lo que dice de esa fuente, **se rehace** desde la
     conversión nueva, que antes tiene que volver a pasar el control de Ingerir paso 1. Proponé la
     lista de páginas a rehacer; al rehacerlas vuelven a `sin-verificar`;
 9.  **matemática sin `, de la imagen`**: una página con LaTeX (`$`) cuyas citas a esa fuente no
