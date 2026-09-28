@@ -84,7 +84,8 @@ PDF de diapositivas, que va con markitdown.
 ### 2. Convertir
 
 Por defecto el `.md` queda **al lado del original, con el mismo nombre**. Si ya existe un `.md` con ese
-nombre, preguntá antes de pisarlo. Para varios archivos, corré las conversiones juntas.
+nombre, preguntá antes de pisarlo. Si está en `~/Boveda` y ya estaba commiteado, el commit lleva el
+trailer `Reconversion: si` (ver «Commit en la bóveda»). Para varios archivos, corré las conversiones juntas.
 
 *   anydoc: `pnpm dlx @firecrawl/anydoc ARCHIVO -o SALIDA.md`. **Nunca `npm` ni `npx`.**
 *   markitdown: `uvx --from 'markitdown[all]==0.1.5' markitdown ARCHIVO -o SALIDA.md`. **Versión
@@ -143,6 +144,21 @@ copió bien.
     `db.py marcar SALIDA.md ok` o `db.py marcar SALIDA.md con-errores --paginas 3,7,19`. Si el
     frontmatter ya existe, agrega `verificado` y `paginas_con_errores` sin tocar lo demás. Una página
     que no miraste no va como error: si quedaron marcadas sin revisar, decíselo al usuario.
+
+### Commit en la bóveda: trailer `Reconversion: si`
+
+`~/Boveda` tiene un hook `commit-msg` que rechaza modificar (`M`), renombrar con cambios (`R<100`) o
+borrar (`D`) un `*.pdf` o una conversión con `verificado: ok`, salvo que el mensaje lleve el trailer
+`Reconversion: si`. Lo escribe `bibliotecario`; la especificación está en `AGENTS.md`.
+
+- **Lleva el trailer** el commit que incluye una conversión **que ya estaba commiteada** y que
+  regeneraste (paso 2) o reverificaste (paso 4: `marcar` cambia su frontmatter, y eso es un `M`).
+  Para saberlo: `git -C ~/Boveda ls-files --error-unmatch <ruta.md>` sale con 0 si ya estaba.
+- **No lo lleva** una conversión nueva (un `A` en git), aunque en el mismo paso la marques.
+- Va como último párrafo del mensaje, en una línea propia. Con dos `-m`, git lo arma solo:
+  `git -C ~/Boveda commit -m 'conversión: reconvertir <archivo>' -m 'Reconversion: si' -- <rutas>`.
+- Es sólo para conversiones. Esta skill **nunca** modifica, renombra ni borra un original: si un
+  commit tuyo tocaría un `*.pdf`, pará y avisá.
 
 ### 5. Registrar evidencia
 
