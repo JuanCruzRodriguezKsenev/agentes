@@ -1,6 +1,6 @@
 ---
 name: apuntes
-description: Mantiene la wiki de cada materia de la facultad en la bóveda (~/Boveda), con el patrón LLM Wiki de Karpathy. Tiene tres operaciones. Ingerir lee una fuente de la materia (PDF, conversión o nota de clase) y actualiza el resumen, los conceptos, el índice y el registro. Consultar responde con citas contra la wiki y guarda la respuesta si el usuario lo pide. Revisar busca contradicciones, afirmaciones viejas y conceptos sin página. Usar cuando el usuario pida ingerir material de una materia, estudiar o preguntar algo de una materia que tiene wiki, guardar una respuesta como síntesis o guía de parcial, o revisar una wiki. También la usa la skill `cierre` para las clases del día.
+description: Mantiene la wiki de cada materia de la facultad en la bóveda (~/Boveda), con el patrón LLM Wiki de Karpathy. Tiene cuatro operaciones. Ingerir lee una fuente de la materia (PDF, conversión o nota de clase) y actualiza el resumen, los conceptos, el índice y el registro. Consultar responde con citas contra la wiki y guarda la respuesta si el usuario lo pide. Repasar toma preguntas de los exámenes, deja que el usuario responda y lo corrige contra la fuente, sin resumir. Revisar busca contradicciones, afirmaciones viejas, conceptos sin página, citas que no valen y diferencias con la página gemela de otra materia, y marca páginas como verificadas cuando el usuario las aprueba. Usar cuando el usuario pida ingerir material de una materia, estudiar, repasar, practicar para un parcial o preguntar algo de una materia que tiene wiki, guardar una respuesta como síntesis o guía de parcial, revisar una wiki o dar por verificada una página. También la usa la skill `cierre` para las clases del día.
 ---
 
 # Apuntes: una wiki por materia
@@ -12,6 +12,10 @@ El éxito del piloto es **que el usuario la use para estudiar**, no que la wiki 
 la duda, elegí lo que sirve para estudiar: definiciones claras, relaciones entre conceptos, ejemplos
 y lo que puede tomarse en un parcial.
 
+**El LLM no estudia por el usuario.** Quien practica con un LLM sin límites rinde peor cuando se lo
+sacan. Por eso el usuario tiene su propia carpeta (`Mis notas/`), el repaso pregunta en vez de
+resumir, y ninguna página vale como verificada hasta que la aprueba él.
+
 ## Estructura
 
 La estructura la decide `bibliotecario` y está en `~/Boveda/AGENTS.md`. Leelo antes de escribir
@@ -21,9 +25,10 @@ nada. Si contradice algo de esta skill, manda `AGENTS.md`: avisale al usuario de
 Areas/Facultad/<carrera>/<materia>/
 ├── Teorias/  Practicas/  …   fuentes: PDF y su conversión .md al lado. SÓLO LECTURA
 ├── Clases/                   notas de clase del usuario, las trae `cierre`. SÓLO LECTURA
+├── Mis notas/                lo que escribe el usuario por su cuenta. LEÉS, NUNCA ESCRIBÍS
 └── Wiki/                     la escribís sólo vos
     ├── index.md              catálogo: cada página con un resumen de una línea, por sección
-    ├── log.md                ## [AAAA-MM-DD] ingest|query|lint | <título>
+    ├── log.md                ## [AAAA-MM-DD] ingest|query|repaso|lint|verify | <título>
     ├── Fuentes/              Resumen - <fuente>.md, una por fuente ingerida
     ├── Conceptos/            <Concepto>.md, una por concepto
     └── Síntesis/             respuestas que el usuario pidió guardar, guías de parcial
@@ -33,6 +38,12 @@ Areas/Facultad/<carrera>/<materia>/
   tiene, preguntá antes de crearla. En una carga inicial ya aprobada no hace falta preguntar. Se
   crea con `index.md` y `log.md` vacíos, más las tres carpetas.
 - **Nunca modifiques** nada fuera de `Wiki/`, salvo la conversión que genere `convertir-documentos`.
+- **`Mis notas/` es del usuario.** No la creás, no escribís ahí, no movés ni renombrás nada, ni
+  siquiera para corregir un error de tipeo. Hay reglas `deny` que igual lo rechazarían, pero no
+  cubren Bash ni la CLI de Obsidian: la regla vale aunque la herramienta te dejara. La leés en
+  Repasar y cuando el usuario te lo pide. **No es fuente de la wiki**: no se ingiere ni se cita en
+  `Wiki/`. Lo que el usuario escribió puede estar mal, y la wiki se apoya en el material de la
+  cátedra.
 
 ### Nombres y enlaces
 
@@ -54,9 +65,23 @@ Areas/Facultad/<carrera>/<materia>/
 tipo: concepto | fuente-resumen | síntesis
 materia: "[[<materia>]]"          # el nombre de la carpeta de la materia
 fuentes: ["[[…]]", "[[…]]"]       # las fuentes de donde sale lo que dice la página
+estado: sin-verificar | verificado
 revisado: AAAA-MM-DD
 ---
 ```
+
+### Estado de verificación
+
+Las conversiones ya se verifican, pero lo que sintetizás encima no. Si un error entra a una página y
+otras lo citan, se propaga por toda la wiki. El `estado` corta esa cadena.
+
+- **Toda página que escribís nace `sin-verificar`.** Nunca la marcás `verificado` por tu cuenta.
+- **Sólo pasa a `verificado` cuando el usuario lo dice** ("la leí, está bien", "marcá verificada
+  Proceso"). Antes corrés los dos chequeos de citas de Revisar sobre esa página. Si alguno falla,
+  no la marcás: le decís qué cita falla y por qué.
+- **Si cambiás el contenido de una página `verificado`, vuelve a `sin-verificar`**, y en el mensaje
+  final se lo decís al usuario con la lista de esas páginas. No hace falta en cambios que no tocan lo
+  que afirma: enlaces, la línea `Ver también`, el formato.
 
 ### Citas
 
@@ -69,6 +94,27 @@ revisado: AAAA-MM-DD
 - En una nota de clase: `([[Clase 2026-09-27 - Conceptos de Sistemas Operativos|clase 27/9]])`.
 - Una deducción tuya que no está en ninguna fuente va marcada con `(inferencia)`, y sólo en
   `Síntesis/`.
+- **Nunca cites el `.md` de una conversión.** La conversión es una herramienta para leer; la cita
+  apunta siempre al original (el PDF con `#page=`, o el pptx/docx). Si la conversión se regenera, la
+  cita sigue valiendo, y lo que el usuario abre es lo que dio la cátedra.
+
+### Copia textual
+
+Las **definiciones**, los **enunciados de teoremas** y las **condiciones de validez** (hipótesis,
+"vale si…", "sólo para…") se copian **textuales**, con su cita, nunca parafraseados. Es la misma regla
+que las fórmulas, extendida al texto: una paráfrasis cambia justo lo que se toma en un parcial.
+
+```markdown
+> **Definición** (Física 2). Un campo es conservativo si la circulación sobre toda curva
+> cerrada es nula. ([[Teoria 4.pdf#page=7|pág. 7]])
+```
+
+- Van en cita (`>`), en negrita la clase (Definición, Teorema, Condición). Tu explicación va afuera
+  de la cita, después.
+- Si la página está en `paginas_con_errores`, o tiene matemática, el texto se copia **de la imagen**
+  y la cita lo dice (`, de la imagen`).
+- Si la fuente la dice de dos formas (por ejemplo la teoría y la práctica), copiá las dos con sus
+  citas. No las unifiques.
 
 ### Matemática
 
@@ -103,15 +149,17 @@ Entrada: una fuente de la materia, que puede ser un PDF u otro original, su conv
       tiene o como `Abierta` si no;
     - `Páginas sin revisar`, si quedaron.
 5.  **Conceptos.** Actualizá las páginas de los conceptos que toca la fuente y creá las que falten.
-    Una fuente puede tocar 10 a 15 páginas. **No borres lo que ya estaba**:
+    Una fuente puede tocar 10 a 15 páginas. Las nuevas nacen `sin-verificar`, y las `verificado`
+    cuyo contenido cambies vuelven a `sin-verificar` (ver Estado de verificación). **No borres lo
+    que ya estaba**:
     - si la fuente nueva lo amplía, integralo;
     - si lo contradice, dejá las dos versiones con sus citas bajo `> [!warning] Contradicción` y
       decíselo al usuario.
 6.  **`index.md` y `log.md`.**
     - En `index.md`, una línea por página nueva y la línea actualizada de cada página cambiada.
     - En `log.md`, una entrada `## [AAAA-MM-DD] ingest | <fuente>` que liste las páginas tocadas.
-7.  **Revisión liviana.** Revisá sólo las páginas que tocaste: enlaces que no resuelven y
-    afirmaciones sin cita.
+7.  **Revisión liviana.** Revisá sólo las páginas que tocaste: enlaces que no resuelven,
+    afirmaciones sin cita, citas a una conversión y definiciones parafraseadas.
 8.  **Commit.** En una ingesta suelta o por lotes, hacé un commit por fuente:
     `git -C ~/Boveda commit -m 'wiki(<materia>): ingerir <fuente>' -- <rutas tocadas>`. Las rutas son
     las de `Wiki/` y la conversión nueva, nunca `git add -A`. **Dentro de `cierre` no commitees**:
@@ -133,31 +181,73 @@ Es para cuando el usuario pide ingerir todo el material de una o más materias.
 1.  Leé el `index.md` de la materia. Después, las páginas que necesites, y bajá a la fuente cuando
     la wiki no alcance.
 2.  Respondé con citas, igual que en la wiki. Si la wiki no tiene la respuesta, decilo, y si la
-    fuente sí la tiene, ofrecé ingerir esa fuente o esa parte.
+    fuente sí la tiene, ofrecé ingerir esa fuente o esa parte. Si la respuesta sale de páginas
+    `sin-verificar`, decilo en una línea.
 3.  Registrá cada consulta en `log.md` (`## [AAAA-MM-DD] query | <pregunta resumida>`), aunque no se
     guarde. **Es la medida del piloto.**
 4.  **Sólo si el usuario lo pide** ("guardalo", "armame una guía para el parcial"), escribí la
     respuesta en `Wiki/Síntesis/<título>.md` con `tipo: síntesis`, agregala a `index.md` y hacé un
     commit `wiki(<materia>): síntesis <título>`.
 
+## Repasar
+
+El usuario practica y vos preguntás y corregís. **No resumís**: si en medio del repaso pide un
+resumen o "explicame el tema", decile que eso es Consultar y preguntale si corta el repaso.
+
+1.  **Tema.** Preguntá qué repasa, si no lo dijo: un tema, un módulo o un parcial.
+2.  **Preguntas desde los exámenes.** Buscá los parciales de la materia (la carpeta la fija
+    `AGENTS.md`, hoy `Parciales/`). Armá las preguntas con el estilo y el tipo de lo que se toma: si
+    piden demostrar, que demuestre; si piden calcular, un ejercicio. Si la materia no tiene
+    exámenes, decilo y ofrecé usar las prácticas.
+3.  **Una por vez.** Hacé una pregunta, **sin la respuesta y sin pistas**, y esperá. Si el usuario
+    se traba, la pista la pide él.
+4.  **Corregir contra la fuente.** Decí qué está bien, qué falta y qué está mal, con cita. Usá
+    **sólo páginas `verificado` o la fuente** (el PDF, leído como imagen si hay matemática). Una
+    página `sin-verificar` no sirve para corregir, porque puede tener justo el error que estás
+    buscando: andá a la fuente que cita.
+5.  **`Mis notas/`.** Si el usuario tiene notas del tema, leelas y, al corregir, señalá dónde
+    difieren de la fuente, con cita. No las corregís: se lo decís.
+6.  **Cierre.** Al terminar, listá las preguntas con un bien / a medias / mal para cada una, y los
+    temas a volver a mirar. Registralo en `log.md` como `## [AAAA-MM-DD] repaso | <tema>`, con
+    ese resultado. Como Consultar, es medida del piloto.
+
 ## Revisar
 
 Revisás el contenido de la wiki. **No** revisás lo estructural (huérfanas, enlaces rotos, páginas
 sin `fuentes:`, ubicación): eso es de `bibliotecario`.
 
-Buscás tres cosas:
-- contradicciones entre páginas;
-- afirmaciones que una fuente más nueva dejó viejas;
-- conceptos que se mencionan en tres o más páginas y no tienen página propia;
-- y, además, las dudas `Abierta` que alguna fuente ingerida después ya responde.
+Buscás:
+1.  contradicciones entre páginas;
+2.  afirmaciones que una fuente más nueva dejó viejas;
+3.  conceptos que se mencionan en tres o más páginas y no tienen página propia;
+4.  dudas `Abierta` que alguna fuente ingerida después ya responde;
+5.  **citas a conversiones**: ninguna cita puede apuntar a un `.md` con `tipo: conversión`. Se
+    corrige apuntando al original, a la misma página;
+6.  **`verificado` con páginas sin revisar**: una página no puede ser `verificado` si cita una
+    página de un PDF que figura en `Páginas sin revisar` del resumen de esa fuente. Por cada cita
+    `[[<pdf>#page=N|…]]` de una página `verificado`, buscá N en esa sección de
+    `Wiki/Fuentes/Resumen - <pdf>.md`. Se bloquea la cita a esas páginas, no la conversión entera.
+    La corrección es volverla a `sin-verificar`, o leer esas páginas como imagen, confirmar lo
+    citado y sacarlas de `Páginas sin revisar`;
+7.  **divergencia con la página gemela**: por cada página con `Ver también en <materia>`, abrí la
+    gemela y compará sobre todo las definiciones y las condiciones textuales. Si difieren, no
+    elijas vos: mostrale las dos, con sus citas, y el usuario decide si es un error o el enfoque de
+    la cátedra. Si es enfoque, anotalo en las dos páginas con `> [!note] Enfoque de la cátedra` y
+    la cita de cada una. Si es error, se corrige la página que lo tiene.
 
 Presentá los hallazgos en una lista numerada con la corrección propuesta para cada uno. Aplicá sólo
 las que el usuario apruebe. Registrá la revisión en `log.md` como `lint` y hacé un commit
 `wiki(<materia>): revisar`.
 
+**Marcar `verificado`.** Cuando el usuario aprueba una página, corré sobre ella los chequeos 5 y 6.
+Si pasan, cambiá `estado` a `verificado` y `revisado` a la fecha de hoy, registralo en `log.md`
+(`## [AAAA-MM-DD] verify | <páginas>`) y hacé un commit `wiki(<materia>): verificar <páginas>`.
+
 ## Lo que esta skill no hace
 
-- No toca las fuentes ni las notas de clase.
+- No toca las fuentes, las notas de clase ni `Mis notas/`.
+- No marca una página `verificado` sin que el usuario la apruebe.
+- No resume en un repaso.
 - No mueve ni renombra notas fuera de `Wiki/`.
 - No procesa la inbox: eso lo hace `cierre`.
 - No crea wikis en materias que el usuario no esté cursando.
