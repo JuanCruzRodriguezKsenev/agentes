@@ -125,7 +125,15 @@ transcribir **una sola página** (`--paginas 7`): sirve para arreglar la página
     > completo está en «Figuras» de la skill convertir-documentos. Una figura no se saltea nunca,
     > aunque parezca no aportar: la sin información va como `> [!figura] Decorativa: <qué es>`.
     > Una página en blanco: `[página en blanco]`. Una parte ilegible: `[ilegible]`, nunca una
-    > conjetura. No escribas nada más que esos archivos.
+    > conjetura. **Ante un símbolo dudoso, ampliá antes de decidir**: `pdftoppm -r 400 -f N -l N
+    > -png ORIGINAL <temporal>/zoom` y recortá la zona con `magick … -crop`. Si dos glifos se ven
+    > iguales en esa letra (la O y el 0, la l y el 1), desempatá con la capa de texto
+    > (`pdftotext -f N -l N -layout ORIGINAL -`): sirve **sólo para elegir entre los glifos que
+    > estás viendo**, nunca para copiar texto. Si tampoco la capa lo resuelve, elegí por contexto y
+    > dejá al lado `<!-- dudoso: <qué opciones>, elegido por contexto -->`. Si el original **no
+    > tiene dibujado** algo que el texto evidentemente pide (un ∈ que falta, un hueco), no lo
+    > completes: `[falta en el original: <qué parece faltar>]`. No escribas nada más que esos
+    > archivos.
 3.  `db.py ensamblar [--conversor <modelo>] ORIGINAL <temporal>/trans SALIDA.md` arma el `.md` (o
     reemplaza esas páginas en uno que ya tiene marcas) y pone
     `conversor: transcripción desde la imagen (<modelo>)`. Si el `.md` existente es una conversión de
@@ -140,6 +148,15 @@ transcribir **una sola página** (`--paginas 7`): sirve para arreglar la página
         cuerpo, así que la verificación anterior deja de valer.
 4.  **Verificá con el paso 4, con OTROS subagentes**, nunca con el que transcribió: quien cometió un
     error tiende a volver a leerlo igual.
+
+**Al volver a transcribir** una página que falló (o una conversión vieja), el transcriptor nuevo
+**no lee el `.md` anterior**: sólo la imagen. Si lo lee, copia el error. Lo que sí se pasa es la
+lista de errores conocidos, **al verificador**, como "mirá especialmente": así se confirma que no
+volvieron.
+
+**Los lotes** se arman por documento entero (un documento no se parte salvo que pase de 10
+páginas) y **por tipo**: los manuscritos juntos, el LaTeX tipeado junto, las presentaciones juntas.
+Cada lote lleva un contexto común y los difíciles no se mezclan con los fáciles.
 
 ### 3. Revisar
 
@@ -197,6 +214,11 @@ las dos (ver «Las dos verificaciones»).
     > correcta, que la línea `Texto:` tenga **todo** el texto de la figura (cada rótulo, valor,
     > nombre de eje o de nodo) y que la descripción diga bien lo que muestra (qué se conecta con qué,
     > hacia dónde, qué valores). Una figura sin bloque, o con un rótulo de menos, es un problema.
+    > **Un símbolo chico o dudoso no se da por bueno sin ampliarlo** (`pdftoppm -r 400 -f N -l N`
+    > y `magick … -crop`). Si dos glifos se ven iguales en esa letra (la O y el 0), la capa de
+    > texto (`pdftotext -f N -l N -layout`) desempata. Un `[falta en el original: …]` es correcto
+    > si en la imagen ampliada ahí no hay nada dibujado; un `<!-- dudoso: … -->` no es un
+    > problema, pero anotalo en tu línea para que llegue a Juan.
     > Respondé **una línea por cada página de tu lote, sin saltear ninguna**:
     > `pág N: ok · figuras: K` o `pág N: problema — <qué, con el texto del .md y lo que dice la
     > imagen> · figuras: K`, con K = las figuras que viste (0 si ninguna). No arregles nada.
@@ -253,6 +275,9 @@ En una transcripción, cada figura va **en su lugar del texto**, como un callout
     captura de código: el código en un bloque dentro del callout.
 *   **`Decorativa`**: una imagen sin información que no es plantilla. Una línea, sin `Texto:`. Sirve
     también cuando el filtro detecta una imagen que a la vista es un fondo.
+*   **La frontera con la plantilla es la repetición**: es plantilla sólo lo que aparece igual en
+    todas (o casi todas) las páginas. Un adorno que aparece una vez, como una palabra en cursiva
+    grande dibujada detrás de un título, es una figura `Decorativa`, aunque no aporte nada.
 
 El chequeo es doble: el verificador visual cuenta las figuras de cada página y revisa cada bloque
 (paso 4.3), y `marcar` compara esa cuenta con los bloques de la página y con las imágenes del
