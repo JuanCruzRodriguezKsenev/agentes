@@ -1,6 +1,6 @@
 ---
 name: cierre
-description: Procesa la inbox de la bóveda (~/Boveda/Inbox) al final del día con un solo comando. Lleva cada nota de clase a su materia y la ingiere en la wiki con la skill `apuntes`. Reparte el archivo general, que tiene ideas, pendientes, links y lo que el usuario hizo, entre la lista de pendientes, las ideas y el diario del día, y deja todo en un solo commit. Usar cuando el usuario pida cerrar el día, procesar o vaciar la inbox, o invoque /cierre.
+description: Procesa la inbox de la bóveda (~/Boveda/Inbox) al final del día con un solo comando. Lleva cada nota de clase a la carpeta `Clases/` de su materia, sin ingerirla en la wiki: las notas del usuario no son fuente. Reparte el archivo general, que tiene ideas, pendientes, links y lo que el usuario hizo, entre la lista de pendientes, las ideas y el diario del día, y deja todo en un solo commit. Usar cuando el usuario pida cerrar el día, procesar o vaciar la inbox, o invoque /cierre.
 ---
 
 # Cierre del día
@@ -43,9 +43,10 @@ Una nota de `Inbox/` que no sea `General.md` es una clase.
     nombre `Clase AAAA-MM-DD - <materia>.md`. Si ya existe, agregá ` (2)`.
 4.  **Frontmatter.** Agregá `tipo: clase`, `materia: "[[<materia>]]"` y `fecha:`. Además del
     frontmatter, es lo único que se toca de la nota: el texto es del usuario.
-5.  **Ingerir.** Aplicá la operación Ingerir de la skill `apuntes` en su modo de cierre: sin preguntar,
-    salvo contradicciones, y **sin commitear**. Las dudas que el usuario anotó en clase quedan en el
-    resumen de la fuente, respondidas con cita o marcadas como `Abierta`.
+
+**No se ingiere en la wiki.** Las notas de clase son del usuario, están simplificadas y pueden tener
+errores: no son fuente de la wiki ni se usan para responder. `apuntes` sólo las lee en Repasar, para
+señalar dónde difieren de la fuente.
 
 ## 2. El archivo general
 
@@ -58,7 +59,7 @@ Una nota de `Inbox/` que no sea `General.md` es una clase.
 | Un link o algo para leer o ver | `Areas/Pendientes.md`, sección `Para leer` |
 | Una idea de un proyecto que ya tiene repo | `Areas/Pendientes.md`, sección `Ideas`, con el enlace a la tarjeta. **No** toques su `Estado.md`, que es de `obra`, ni su `Deuda.md`, que es de `tanda` |
 | Una idea sin repo | `Proyectos/_ideas/<slug>/<slug>.md` con `tipo: idea`. Si ya existe una parecida, se agrega ahí |
-| Una duda o nota de una materia en curso | Se agrega al final de la nota de clase de ese día y esa materia, o se crea una con el ítem, y se ingiere como en el paso 1 |
+| Una duda o nota de una materia en curso | Se agrega al final de la nota de clase de ese día y esa materia, o se crea una con el ítem como en el paso 1. No se ingiere |
 | Lo que no encaja en ninguna | La ronda de preguntas |
 
 `Areas/Pendientes.md` es una lista de casillas (`- [ ]`). Si no existe, creala con las tres secciones
@@ -71,8 +72,7 @@ concreto propuesto en cada una. Si hay más de 4 dudas, agrupalas.
 
 Pregunta sólo lo que de verdad no se puede deducir:
 - la materia de una nota;
-- el destino de un ítem ambiguo;
-- una contradicción que encontró la ingesta.
+- el destino de un ítem ambiguo.
 
 ## 4. Diario
 
@@ -80,7 +80,7 @@ Pregunta sólo lo que de verdad no se puede deducir:
     queda guardado tal cual, y la bóveda no borra, archiva.
 2.  Arriba del texto agregá frontmatter (`tipo: diario`, `fecha:`) y una sección `## Cierre` con:
     - `Hice`: lo que hizo, en viñetas, con enlaces a los proyectos o materias que menciona;
-    - `Clases`: enlaces a las notas de clase del día y a sus resúmenes en la wiki;
+    - `Clases`: enlaces a las notas de clase del día;
     - `Repartido`: qué ítem fue a dónde, en una línea cada uno.
 3.  Si la nota del día ya existe, porque el cierre se corrió dos veces, agregá el texto nuevo y
     completá su `## Cierre`, en vez de moverlo.
@@ -88,8 +88,8 @@ Pregunta sólo lo que de verdad no se puede deducir:
 
 ## 5. Resumen y commit
 
-1.  Mostrale al usuario una tabla corta: cada clase con su materia y las páginas de la wiki que tocó,
-    y cada ítem del general con su destino.
+1.  Mostrale al usuario una tabla corta: cada clase con su materia y dónde quedó, y cada ítem del
+    general con su destino.
 2.  Hacé un solo commit con las rutas tocadas explícitas, nunca `git add -A`:
     `git -C ~/Boveda commit -m 'cierre: AAAA-MM-DD' -- <rutas>`. Si una de esas rutas ya estaba
     modificada antes de empezar, dejala afuera y avisá.
@@ -97,6 +97,7 @@ Pregunta sólo lo que de verdad no se puede deducir:
 ## Lo que esta skill no hace
 
 - No reescribe lo que escribió el usuario. Sólo lo mueve, le agrega frontmatter o anexa ítems.
-- No tacha pendientes ni responde las dudas por fuera de la wiki.
+- No ingiere nada en la wiki: las notas de clase no son fuente.
+- No tacha pendientes ni responde las dudas.
 - No toca `Estado.md` ni `Deuda.md` de ningún proyecto.
 - No reordena la bóveda. Si algo parece estar en el lugar equivocado, es para `bibliotecario`.
