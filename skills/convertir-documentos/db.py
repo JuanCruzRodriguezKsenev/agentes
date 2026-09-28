@@ -9,16 +9,26 @@
     db.py stats [--formato F] [--tipo T]     resumen por formato, tipo y herramienta, y duelos
     db.py limpiar-pies [--paginas N] [--aplicar] ARCHIVO.md
                                              quita pies de página repetidos (deja el primero)
-    db.py verificar [--imagenes DIR] ORIGINAL SALIDA.md
-                                             chequeo página por página y selección para revisión visual
-    db.py marcar SALIDA.md ok|con-errores [--paginas 3,7]
-                                             deja el resultado de la verificación en el frontmatter
+    db.py verificar [--paginas A-B] [--imagenes DIR] ORIGINAL SALIDA.md
+                                             chequeos automáticos (filtro previo) y render de TODAS las
+                                             páginas del tramo para la revisión visual, en lotes
+    db.py transcribir [--paginas A-B] ORIGINAL DIR
+                                             renderiza las páginas para transcribirlas desde la imagen
+    db.py ensamblar [--reemplazar] [--conversor C] ORIGINAL DIR SALIDA.md
+                                             arma o actualiza el .md con DIR/pag-NNN.md, entre marcas de página
+    db.py marcar SALIDA.md --revision INFORME.txt [--paginas A-B]
+    db.py marcar SALIDA.md --pendiente
+                                             verificación del agente en el frontmatter, con el md5 del cuerpo
+    db.py estado [--paginas A-B] SALIDA.md   verificación vigente del agente y de Juan; sale con 0 sólo
+                                             si la del agente está en ok y vigente para esas páginas
+    db.py huella [--paginas A-B] SALIDA.md   md5 del cuerpo (o del tramo) que se anota en la wiki
 
 Sólo biblioteca estándar. La base es datos/pruebas.csv y se toca únicamente desde acá.
 """
 
 import argparse
 import csv
+import hashlib
 import html
 import json
 import math
@@ -82,7 +92,13 @@ FUENTES_MATE = re.compile(r"^(CM(MI|EX|MIB)\d+|MSBM\d+|MSAM\d+|BBOLD\d+|Mathemat
                           r"|LMMath|LatinModernMath|STIX\w*Math|CambriaMath)")
 # Verificación página por página (prototipos de bibliotecario, ~/Boveda/Sistema/adjuntos, 2026-09-26).
 UMBRAL_COBERTURA = 0.9
-TOPE_VISUAL = 10
+# Páginas por subagente en la revisión visual y en la transcripción. Es el tamaño del lote, NO un
+# tope de páginas miradas: un `ok` exige haber mirado todas las del tramo (Juan, 2026-09-28).
+LOTE = 10
+DPI_REVISION = 110   # a 70 ppp no se distinguen subíndices, ≤ de < ni ≠ de =
+DPI_TRANSCRIBIR = 150
+MARCA_PAGINA = re.compile(r"^<!-- pág (\d+) -->[ \t]*$", re.M)
+TRANSCRIPCION = "transcripción desde la imagen"
 SIMBOLOS_EXTRA = set("∈∉⊂⊆∪∩∀∃ⁿ₀₁₂₃ᵢⱼ")
 
 
@@ -534,17 +550,11 @@ def verificar(original, salida):
 
     n = len(textos)
     pegadas = sum(1 for l in md.splitlines() if re.search(r"[a-záéíóúüñ]{35,}", l))
-    # Revisión visual: las marcadas (peor cobertura primero), la primera, una del medio, la última y dos con fórmulas.
-    orden = sorted(marcadas, key=lambda i: coberturas.get(i, 1))
-    muestra = [p for p in dict.fromkeys([1, (n + 1) // 2, n]) if p]
-    extra = sorted(formulas - set(marcadas) - set(muestra))[:2]
-    visual = sorted(list(dict.fromkeys(muestra + extra + orden))[:TOPE_VISUAL])
     return {
         "paginas": n, "marcadas": marcadas, "formulas": sorted(formulas), "pegadas": pegadas,
         "cobertura_min": min(coberturas.values(), default=1.0),
         "cobertura_media": media(list(coberturas.values())) if coberturas else 1.0,
         "peor": min(coberturas, key=coberturas.get) if coberturas else None,
-        "visual": visual, "sin_mirar": [i for i in orden if i not in visual],
     }
 
 
@@ -559,6 +569,31 @@ def rangos(nums):
     return ", ".join(grupos)
 
 
+def leer_rango(texto):
+    """'1-24, 30' → [1..24, 30]."""
+    paginas = set()
+    for parte in re.split(r"[,\s]+", texto.strip()):
+        if not parte:
+            continue
+        m = re.fullmatch(r"(\d+)(?:[-–](\d+))?", parte)
+        if not m:
+            sys.exit(f"rango inválido: {texto!r} (se escribe 1-24 o 3,7,19)")
+        a, b = int(m[1]), int(m[2] or m[1])
+        paginas.update(range(min(a, b), max(a, b) + 1))
+    return sorted(paginas)
+
+
+def renderizar(original, paginas, destino, dpi):
+    destino.mkdir(parents=True, exist_ok=True)
+    for i in paginas:
+        subprocess.run(["pdftoppm", "-f", str(i), "-l", str(i), "-r", str(dpi), "-png", "-singlefile",
+                        str(original), str(destino / f"pag-{i:03d}")], check=True)
+
+
+def lotes(paginas):
+    return [paginas[i:i + LOTE] for i in range(0, len(paginas), LOTE)]
+
+
 def cmd_verificar(a):
     original, salida = Path(a.original).expanduser().resolve(), Path(a.salida).expanduser().resolve()
     for r in (original, salida):
@@ -568,53 +603,351 @@ def cmd_verificar(a):
     if v is None:
         print(f"{original.suffix} no se verifica página por página (sólo PDF, pptx y docx): revisá la salida a mano.")
         return
+    tramo = leer_rango(a.paginas) if a.paginas else list(range(1, v["paginas"] + 1))
+    if tramo[-1] > v["paginas"]:
+        sys.exit(f"el original tiene {v['paginas']} páginas y el tramo llega a {tramo[-1]}")
     unidad = "págs" if original.suffix.lower() == ".pdf" else "diapositivas" if original.suffix.lower() == ".pptx" else "bloque"
-    print(f"{abreviar(original)} → {salida.name}")
+    print(f"{abreviar(original)} → {salida.name}" + (f" · tramo {rangos(tramo)}" if a.paginas else ""))
     peor = f", mínima {v['cobertura_min']:.2f} (pág {v['peor']})" if v["peor"] else ""
     print(f"  {v['paginas']} {unidad} · cobertura media {v['cobertura_media']:.2f}{peor}")
     if v["pegadas"] > 3:
         print(f"  PALABRAS PEGADAS: {v['pegadas']} líneas con una palabra de 35+ letras. La salida no sirve: convertí con la otra.")
-    if v["marcadas"]:
-        print(f"  marcadas ({len(v['marcadas'])} de {v['paginas']}):")
-        for i, motivos in sorted(v["marcadas"].items()):
+    marcadas = {i: m for i, m in v["marcadas"].items() if i in tramo}
+    if marcadas:
+        print(f"  marcadas ({len(marcadas)} de {len(tramo)}):")
+        for i, motivos in sorted(marcadas.items()):
             print(f"    pág {i}: " + "; ".join(motivos))
     else:
         print("  marcadas: ninguna")
-    if v["formulas"]:
-        print(f"  fórmulas (fuentes de LaTeX) en {len(v['formulas'])} págs: {rangos(v['formulas'])}. "
+    formulas = [i for i in v["formulas"] if i in tramo]
+    if formulas:
+        print(f"  fórmulas (fuentes de LaTeX) en {len(formulas)} págs: {rangos(formulas)}. "
               "Los chequeos automáticos no ven la matemática: sólo la revisión visual.")
+    print("  Esto es un filtro previo: ninguna métrica alcanza para un ok. El ok sale de mirar TODAS las páginas del tramo.")
     if original.suffix.lower() != ".pdf":
-        print("  revisión visual: sólo PDF. Si hace falta, exportá a PDF (soffice --headless --convert-to pdf).")
+        print("  revisión visual: sólo PDF. Exportá a PDF (soffice --headless --convert-to pdf) y verificá ese.")
         return
-    print(f"  revisión visual: {rangos(v['visual'])}")
-    if v["sin_mirar"]:
-        print(f"  ojo: {len(v['sin_mirar'])} marcadas quedan fuera del tope de {TOPE_VISUAL}: {rangos(sorted(v['sin_mirar']))}")
+    grupos = lotes(tramo)
+    print(f"  revisión visual: {len(tramo)} págs en {len(grupos)} lote(s) de hasta {LOTE}, un subagente por lote:")
+    for g in grupos:
+        print(f"    {rangos(g)}")
     if a.imagenes:
         destino = Path(a.imagenes).expanduser()
-        destino.mkdir(parents=True, exist_ok=True)
-        for i in v["visual"]:
-            subprocess.run(["pdftoppm", "-f", str(i), "-l", str(i), "-r", "70", "-png", "-singlefile",
-                            str(original), str(destino / f"pag-{i:03d}")], check=True)
-        print(f"  imágenes: {abreviar(destino)}/pag-NNN.png")
+        renderizar(original, tramo, destino, a.dpi)
+        print(f"  imágenes ({a.dpi} ppp): {abreviar(destino)}/pag-NNN.png")
+
+
+def cmd_transcribir(a):
+    original = Path(a.original).expanduser().resolve()
+    if original.suffix.lower() != ".pdf" or not original.is_file():
+        sys.exit(f"transcribir es para PDF: {original}")
+    n = len(textos_por_pagina(original))
+    tramo = leer_rango(a.paginas) if a.paginas else list(range(1, n + 1))
+    if tramo[-1] > n:
+        sys.exit(f"el original tiene {n} páginas y el tramo llega a {tramo[-1]}")
+    destino = Path(a.dir).expanduser()
+    renderizar(original, tramo, destino, a.dpi)
+    print(f"{abreviar(original)}: {len(tramo)} págs renderizadas a {a.dpi} ppp en {abreviar(destino)}/pag-NNN.png")
+    print(f"Un subagente por lote; cada uno escribe {abreviar(destino)}/pag-NNN.md por página:")
+    for g in lotes(tramo):
+        print(f"  {rangos(g)}")
+    print(f"Después: db.py ensamblar {shlex.quote(str(original))} {shlex.quote(str(destino))} SALIDA.md")
+
+
+# --- Frontmatter de la conversión y verificación ------------------------------------------------
+
+CLAVES_VIEJAS = re.compile(r"^(verificado|paginas_con_errores|verificacion_agente\w*|verificacion_juan):")
+
+
+def partir(texto):
+    """(frontmatter sin los ---, cuerpo). Frontmatter '' si no hay."""
+    m = re.match(r"---\n(.*?\n)?---\n", texto, re.S)
+    return ((m[1] or ""), texto[m.end():]) if m else ("", texto)
+
+
+def valores(fm):
+    """Lectura mínima de YAML plano: escalares, listas en línea y listas en bloque."""
+    d, clave = {}, None
+    for linea in fm.splitlines():
+        m = re.match(r"^([\w-]+):\s*(.*)$", linea)
+        if m:
+            clave, v = m[1], m[2].strip()
+            if v.startswith("[") and v.endswith("]"):
+                d[clave] = [x.strip().strip("\"'") for x in v[1:-1].split(",") if x.strip()]
+            elif v == "":
+                d[clave] = []
+            else:
+                d[clave] = v.strip("\"'")
+        elif clave and re.match(r"^\s+-\s*", linea) and isinstance(d.get(clave), list):
+            d[clave].append(re.sub(r"^\s+-\s*", "", linea).strip().strip("\"'"))
+    return d
+
+
+def sin_claves(fm):
+    """El frontmatter sin las claves de verificación (con sus listas en bloque)."""
+    salida, saltando = [], False
+    for linea in fm.splitlines(keepends=True):
+        if CLAVES_VIEJAS.match(linea):
+            saltando = True
+            continue
+        if saltando and re.match(r"^\s+-", linea):
+            continue
+        saltando = False
+        salida.append(linea)
+    return "".join(salida)
+
+
+def md5(texto):
+    texto = unicodedata.normalize("NFC", texto.replace("\r\n", "\n")).strip()
+    return hashlib.md5(texto.encode("utf-8")).hexdigest()
+
+
+def secciones(cuerpo):
+    """{página: texto de esa página, con su marca} según las marcas <!-- pág N -->."""
+    marcas = list(MARCA_PAGINA.finditer(cuerpo))
+    return {int(m[1]): cuerpo[m.start():(marcas[i + 1].start() if i + 1 < len(marcas) else len(cuerpo))]
+            for i, m in enumerate(marcas)}
+
+
+def huella_tramo(cuerpo, paginas):
+    sec = secciones(cuerpo)
+    faltan = [p for p in paginas if p not in sec]
+    if faltan:
+        return None, faltan
+    return md5("".join(sec[p] for p in paginas)), []
+
+
+def original_de(ruta, fm, forzado=None):
+    if forzado:
+        return Path(forzado).expanduser().resolve()
+    fuente = valores(fm).get("fuente")
+    return (ruta.parent / fuente).resolve() if isinstance(fuente, str) and fuente else None
+
+
+def total_paginas(original):
+    if original and original.is_file():
+        t = textos_por_pagina(original)
+        return len(t) if t is not None else None
+    return None
+
+
+def vigencia(ruta, forzado=None):
+    """Lo que vale HOY de la verificación anotada, recalculando el md5."""
+    texto = ruta.read_text(encoding="utf-8")
+    fm, cuerpo = partir(texto)
+    d = valores(fm)
+    actual = md5(cuerpo)
+    original = original_de(ruta, fm, forzado)
+    n = total_paginas(original)
+    estado = d.get("verificacion_agente") if isinstance(d.get("verificacion_agente"), str) else None
+    anotado = d.get("verificacion_agente_md5")
+    errores = {int(x) for x in d.get("verificacion_agente_errores") or [] if str(x).isdigit()}
+    miradas, tramos_validos = set(), []
+    motivo = ""
+    if estado in ("ok", "con-errores"):
+        paginas = d.get("verificacion_agente_paginas")
+        tramos = d.get("verificacion_agente_tramos") or []
+        if anotado == actual:
+            if paginas == "todas":
+                miradas = set(range(1, (n or 0) + 1)) if n else {"todas"}
+            elif isinstance(paginas, str):
+                miradas = set(leer_rango(paginas))
+            tramos_validos = list(tramos)
+        else:
+            for t in tramos:
+                rango, _, h = t.rpartition(" ")
+                if huella_tramo(cuerpo, leer_rango(rango))[0] == h:
+                    tramos_validos.append(t)
+                    miradas |= set(leer_rango(rango))
+            motivo = "el cuerpo cambió después de marcar" + (
+                f"; siguen vigentes los tramos {', '.join(t.rpartition(' ')[0] for t in tramos_validos)}" if tramos_validos else "")
+        errores &= miradas if "todas" not in miradas else errores
+    elif "verificado" in d:
+        motivo = "esquema viejo (verificado:), vale como pendiente"
+    return {
+        "texto": texto, "fm": fm, "cuerpo": cuerpo, "valores": d, "md5": actual, "anotado": anotado,
+        "original": original, "n": n, "estado": estado or "pendiente", "miradas": miradas,
+        "errores": errores, "tramos": tramos_validos, "motivo": motivo,
+        "juan": d.get("verificacion_juan") == "true" and anotado == actual,
+        "juan_caducada": d.get("verificacion_juan") == "true" and anotado != actual,
+    }
+
+
+def cubre(v, paginas):
+    """¿La verificación vigente del agente cubre esas páginas (None = el documento entero) sin errores?"""
+    if "todas" in v["miradas"]:
+        return not v["errores"] and (paginas is None or not (set(paginas) & v["errores"]))
+    objetivo = set(paginas) if paginas else (set(range(1, v["n"] + 1)) if v["n"] else None)
+    if not objetivo:
+        return False
+    return objetivo <= v["miradas"] and not (objetivo & v["errores"])
+
+
+def leer_informe(ruta):
+    """{página: (ok?, detalle)} de las líneas `pág N: ok` / `pág N: problema — …`."""
+    resultado = {}
+    for linea in Path(ruta).expanduser().read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^\W*p[áa]g\.?\s*(\d+)\s*:\s*(ok\b|problema\b)(.*)$", linea.strip(), re.I)
+        if m:
+            i, ok = int(m[1]), m[2].lower() == "ok"
+            previo = resultado.get(i, (True, ""))
+            resultado[i] = (previo[0] and ok, (previo[1] + " " + m[3].strip(" —-:")).strip())
+    return resultado
+
+
+def escribir_campos(ruta, fm, cuerpo, campos):
+    fm = sin_claves(fm)
+    if fm and not fm.endswith("\n"):
+        fm += "\n"
+    ruta.write_text("---\n" + fm + "\n".join(campos) + "\n---\n" + (cuerpo if cuerpo.startswith("\n") else "\n" + cuerpo),
+                    encoding="utf-8")
 
 
 def cmd_marcar(a):
-    ruta = Path(a.archivo).expanduser()
-    texto = ruta.read_text(encoding="utf-8")
-    paginas = sorted({int(x) for x in re.findall(r"\d+", a.paginas)}) if a.paginas else []
-    if a.estado == "con-errores" and not paginas:
-        sys.exit("con-errores necesita --paginas")
-    campos = [f"verificado: {a.estado}"]
-    if paginas:
-        campos.append(f"paginas_con_errores: [{', '.join(map(str, paginas))}]")
-    m = re.match(r"---\n(.*?\n)?---\n", texto, re.S)
-    if m:
-        cuerpo = re.sub(r"^(verificado|paginas_con_errores):.*\n(?:[ \t]+-.*\n)*", "", m[1] or "", flags=re.M)
-        texto = "---\n" + cuerpo + "\n".join(campos) + "\n---\n" + texto[m.end():]
+    ruta = Path(a.archivo).expanduser().resolve()
+    v = vigencia(ruta, a.original)
+    hoy = date.today().isoformat()
+    # verificacion_juan: ningún agente la pone en true. Se conserva sólo si el cuerpo no cambió desde la
+    # última marca; si cambió (o no había marca), queda en false.
+    juan = "true" if v["valores"].get("verificacion_juan") == "true" and v["anotado"] == v["md5"] else "false"
+    if v["valores"].get("verificacion_juan") == "true" and juan == "false":
+        print("verificacion_juan: el cuerpo cambió desde que Juan la tildó → vuelve a false")
+
+    if a.pendiente:
+        campos = ["verificacion_agente: pendiente", f"verificacion_agente_fecha: {hoy}",
+                  f'verificacion_agente_md5: "{v["md5"]}"', f"verificacion_juan: {juan}"]
+        escribir_campos(ruta, v["fm"], v["cuerpo"], campos)
+        print(f"{ruta.name}: " + ", ".join(campos))
+        return
+
+    if not a.revision:
+        sys.exit("marcar necesita --revision INFORME.txt (una línea `pág N: ok|problema — …` por página mirada) o --pendiente")
+    n, original = v["n"], v["original"]
+    if not n:
+        sys.exit(f"no pude contar las páginas del original ({original}); pasalo con --original")
+    tramo = leer_rango(a.paginas) if a.paginas else list(range(1, n + 1))
+    if tramo[-1] > n:
+        sys.exit(f"el original tiene {n} páginas y el tramo llega a {tramo[-1]}")
+    # El informe tiene que ser posterior a la última modificación del .md: uno viejo habla de otro texto.
+    if Path(a.revision).expanduser().stat().st_mtime < ruta.stat().st_mtime:
+        sys.exit(f"el informe {a.revision} es anterior a la última modificación de {ruta.name}: "
+                 "habla de otro texto. Revisá las páginas de nuevo.")
+    informe = leer_informe(a.revision)
+    faltan = [p for p in tramo if p not in informe]
+    if faltan:
+        sys.exit(f"el informe no dice nada de {len(faltan)} págs del tramo: {rangos(faltan)}. "
+                 "Un ok exige haber mirado TODAS: revisalas y volvé a marcar (o marcá un tramo más chico).")
+    errores_tramo = {p for p in tramo if not informe[p][0]}
+    if tramo != list(range(1, n + 1)) and huella_tramo(v["cuerpo"], tramo)[0] is None:
+        sys.exit(f"verificar por tramos necesita marcas `<!-- pág N -->` en el .md, y faltan las de "
+                 f"{rangos(huella_tramo(v['cuerpo'], tramo)[1])}. Las pone el modo transcribir; una conversión "
+                 "de anydoc o markitdown se verifica entera.")
+
+    # Guarda: ninguna herramienta saca bien la matemática de LaTeX. Si la conversión no es una
+    # transcripción, una página con fuentes de matemática no puede quedar ok aunque el informe lo diga.
+    conversor = str(v["valores"].get("conversor", ""))
+    if original.suffix.lower() == ".pdf" and not conversor.startswith(TRANSCRIPCION):
+        forzadas = [p for p in fuentes_mate(original, tramo) if p not in errores_tramo]
+        if forzadas:
+            errores_tramo |= set(forzadas)
+            print(f"GUARDA: {len(forzadas)} págs con fuentes de LaTeX ({rangos(forzadas)}) y la conversión es de "
+                  f"«{conversor or 'desconocido'}», no una transcripción → cuentan como error aunque el informe diga ok. "
+                  "Para esas páginas: transcribir desde la imagen.")
+
+    completo = tramo == list(range(1, n + 1))
+    if completo:
+        miradas_txt, tramos, errores = "todas", [], errores_tramo
     else:
-        texto = "---\n" + "\n".join(campos) + "\n---\n\n" + texto
-    ruta.write_text(texto, encoding="utf-8")
-    print(f"{ruta.name}: " + ", ".join(campos))
+        h, sin_marca = huella_tramo(v["cuerpo"], tramo)
+        if h is None:
+            sys.exit(f"verificar por tramos necesita marcas `<!-- pág N -->` en el .md, y faltan las de {rangos(sin_marca)}. "
+                     "Las pone el modo transcribir; una conversión de anydoc o markitdown se verifica entera.")
+        # Se conservan los tramos anteriores que siguen vigentes y no se pisan con este.
+        tramos = [t for t in v["tramos"] if not set(leer_rango(t.rpartition(" ")[0])) & set(tramo)]
+        tramos.append(f"{rangos(tramo).replace(', ', ',')} {h}")
+        tramos.sort(key=lambda t: leer_rango(t.rpartition(" ")[0])[0])
+        miradas = set()
+        for t in tramos:
+            miradas |= set(leer_rango(t.rpartition(" ")[0]))
+        errores = (v["errores"] & miradas) - set(tramo) | errores_tramo
+        completo = miradas >= set(range(1, n + 1))
+        miradas_txt = "todas" if completo else rangos(sorted(miradas))
+    estado = "con-errores" if errores else "ok"
+    campos = [f"verificacion_agente: {estado}", f"verificacion_agente_fecha: {hoy}",
+              f'verificacion_agente_paginas: {"todas" if miradas_txt == "todas" else chr(34) + miradas_txt + chr(34)}',
+              f"verificacion_agente_errores: [{', '.join(map(str, sorted(errores)))}]",
+              f'verificacion_agente_md5: "{v["md5"]}"']
+    if tramos:
+        campos.append("verificacion_agente_tramos: [" + ", ".join(f'"{t}"' for t in tramos) + "]")
+    campos.append(f"verificacion_juan: {juan}")
+    escribir_campos(ruta, v["fm"], v["cuerpo"], campos)
+    print(f"{ruta.name}: " + "\n  ".join([""] + campos))
+    for p in sorted(errores_tramo):
+        if not informe[p][0]:
+            print(f"  pág {p}: {informe[p][1]}")
+
+
+def cmd_estado(a):
+    ruta = Path(a.archivo).expanduser().resolve()
+    v = vigencia(ruta, a.original)
+    paginas = leer_rango(a.paginas) if a.paginas else None
+    print(f"{ruta.name}" + (f" · págs {rangos(paginas)}" if paginas else ""))
+    anotado = v["valores"].get("verificacion_agente", "—")
+    miradas = "todas" if "todas" in v["miradas"] or (v["n"] and v["miradas"] >= set(range(1, v["n"] + 1))) \
+        else (rangos(sorted(v["miradas"])) or "ninguna")
+    print(f"  agente: anotado {anotado} · vigente: miradas {miradas}, errores [{', '.join(map(str, sorted(v['errores'])))}]"
+          + (f" · {v['motivo']}" if v["motivo"] else " · md5 vigente" if v["anotado"] == v["md5"] else ""))
+    print("  juan: " + ("verificada" if v["juan"] else
+                        "tildada pero el cuerpo cambió después → vale como pendiente" if v["juan_caducada"] else "sin verificar"))
+    ok = v["estado"] in ("ok", "con-errores") and cubre(v, paginas)
+    print(f"  ingerible: {'sí' if ok else 'NO'}" + ("" if ok else " — hace falta verificacion_agente en ok, vigente y sin errores en "
+                                                          + (f"págs {rangos(paginas)}" if paginas else "todo el documento")))
+    print(f"  wiki: {'definitiva' if v['juan'] else 'provisional (falta la verificación de Juan)'}")
+    h = huella_tramo(v["cuerpo"], paginas)[0] if paginas and secciones(v["cuerpo"]) else v["md5"]
+    print(f"  huella: {h}" + (f" (tramo {rangos(paginas)})" if paginas and secciones(v['cuerpo']) else " (cuerpo)"))
+    sys.exit(0 if ok else 1)
+
+
+def cmd_huella(a):
+    cuerpo = partir(Path(a.archivo).expanduser().read_text(encoding="utf-8"))[1]
+    if a.paginas and secciones(cuerpo):
+        h, faltan = huella_tramo(cuerpo, leer_rango(a.paginas))
+        if h is None:
+            sys.exit(f"faltan las marcas de {rangos(faltan)}")
+        print(h)
+    else:
+        print(md5(cuerpo))
+
+
+def cmd_ensamblar(a):
+    original, dir_ = Path(a.original).expanduser().resolve(), Path(a.dir).expanduser()
+    salida = Path(a.salida).expanduser()
+    nuevas = {int(re.search(r"\d+", f.stem)[0]): f.read_text(encoding="utf-8").strip()
+              for f in sorted(dir_.glob("pag-*.md"))}
+    if not nuevas:
+        sys.exit(f"no hay pag-NNN.md en {dir_}")
+    vacias = [p for p, t in nuevas.items() if not t]
+    if vacias:
+        sys.exit(f"páginas vacías: {rangos(vacias)} (una página en blanco se transcribe como `[página en blanco]`)")
+    conversor = f"{TRANSCRIPCION} ({a.conversor})" if a.conversor else TRANSCRIPCION
+    if salida.exists():
+        fm, cuerpo = partir(salida.read_text(encoding="utf-8"))
+        sec = secciones(cuerpo)
+        if not sec and cuerpo.strip() and not a.reemplazar:
+            sys.exit(f"{salida.name} ya tiene un cuerpo sin marcas de página (una conversión de herramienta). "
+                     "Con --reemplazar se cambia entero por la transcripción; lo anterior queda en git.")
+        if not sec:
+            sec = {}
+        sec.update({p: f"<!-- pág {p} -->\n\n{t}\n\n" for p, t in nuevas.items()})
+        fm = re.sub(r"^conversor:.*\n", "", fm, flags=re.M) + f"conversor: {conversor}\n"
+    else:
+        sec = {p: f"<!-- pág {p} -->\n\n{t}\n\n" for p, t in nuevas.items()}
+        fm = (f"tipo: conversión\nfuente: \"{original.name}\"\nconversor: {conversor}\n"
+              f"revisado: {date.today().isoformat()}\n")
+    cuerpo = "".join(sec[p] if sec[p].endswith("\n\n") else sec[p].rstrip("\n") + "\n\n" for p in sorted(sec))
+    salida.write_text("---\n" + fm + "---\n\n" + cuerpo.rstrip("\n") + "\n", encoding="utf-8")
+    print(f"{salida.name}: {len(nuevas)} págs escritas ({rangos(sorted(nuevas))}); el .md tiene {rangos(sorted(sec))}")
+    print("La transcripción todavía no está verificada: db.py verificar --paginas … y marcar, con OTRO subagente.")
 
 
 def main():
@@ -658,16 +991,47 @@ def main():
     s.set_defaults(f=cmd_limpiar)
 
     s = sub.add_parser("verificar")
-    s.add_argument("--imagenes", help="renderiza las páginas elegidas para la revisión visual en este directorio")
+    s.add_argument("--paginas", help="tramo a verificar (1-24); por defecto, todas")
+    s.add_argument("--imagenes", help="renderiza TODAS las páginas del tramo en este directorio")
+    s.add_argument("--dpi", type=int, default=DPI_REVISION)
     s.add_argument("original")
     s.add_argument("salida")
     s.set_defaults(f=cmd_verificar)
 
+    s = sub.add_parser("transcribir")
+    s.add_argument("--paginas", help="tramo a transcribir (un capítulo); por defecto, todas")
+    s.add_argument("--dpi", type=int, default=DPI_TRANSCRIBIR)
+    s.add_argument("original")
+    s.add_argument("dir")
+    s.set_defaults(f=cmd_transcribir)
+
+    s = sub.add_parser("ensamblar")
+    s.add_argument("--reemplazar", action="store_true", help="pisa un cuerpo sin marcas de página")
+    s.add_argument("--conversor", default="", help="modelo que transcribió, p. ej. claude-opus-5-5")
+    s.add_argument("original")
+    s.add_argument("dir")
+    s.add_argument("salida")
+    s.set_defaults(f=cmd_ensamblar)
+
     s = sub.add_parser("marcar")
     s.add_argument("archivo")
-    s.add_argument("estado", choices=("ok", "con-errores"))
-    s.add_argument("--paginas", default="")
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--revision", help="informe de la revisión visual: `pág N: ok` o `pág N: problema — …`")
+    g.add_argument("--pendiente", action="store_true", help="deja la verificación del agente en pendiente")
+    s.add_argument("--paginas", help="tramo mirado (1-24); por defecto, todas")
+    s.add_argument("--original", help="si el frontmatter no tiene fuente:")
     s.set_defaults(f=cmd_marcar)
+
+    s = sub.add_parser("estado")
+    s.add_argument("--paginas")
+    s.add_argument("--original")
+    s.add_argument("archivo")
+    s.set_defaults(f=cmd_estado)
+
+    s = sub.add_parser("huella")
+    s.add_argument("--paginas")
+    s.add_argument("archivo")
+    s.set_defaults(f=cmd_huella)
 
     a = p.parse_args()
     a.f(a)
