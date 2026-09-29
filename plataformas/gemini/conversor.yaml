@@ -1,6 +1,6 @@
 name: conversor
 description: {{descripcion}}
-model: flash
+model: pro
 mainAgent: false
 subagent: true
 commandExecutionPolicy: auto

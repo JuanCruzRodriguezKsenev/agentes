@@ -217,6 +217,9 @@ Nombres confirmados por uso real: `view_file` · `list_dir` · `grep_search` · 
 `write_to_file` · `replace_file_content` · `run_command` · `manage_task` · `ask_question` ·
 `invoke_subagent` · `send_message` · `manage_subagents` · `read_url_content` · `search_web`.
 
+**Un nombre de herramienta mal escrito en `tools` puede colgar al subagente** en vez de dar error (Known
+Issue de [Subagents][subagents]). Usá sólo nombres de esta lista.
+
 **La documentación no dice si un subagente puede usar `ask_question`.** Lo único documentado es que un
 pedido de autorización "bubbles up to the main UI/Subagent panel" ([Subagents][subagents]). Diseñá como
 si no pudiera preguntar: si el rol necesita preguntar, `subagent: false`.
