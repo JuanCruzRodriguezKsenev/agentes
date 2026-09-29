@@ -56,6 +56,19 @@ igual quiere convertir algo de eso, decíselo y no uses esta skill.
 5. Registrar    db.py probar + calificar, cuando falta evidencia o lo piden
 ```
 
+**Lo que se exige es el contenido, no la presentación** (Juan, 2026-09-29). Tiene que estar, y
+fiel: el texto, palabra por palabra; las fórmulas, símbolo por símbolo, con mayúsculas y minúsculas
+(`v` no es `V`, la O no es el 0); y los esquemas, tablas y diagramas con toda su información. No
+importa, y no se transcribe ni se verifica: el color, la alineación, si un título estaba centrado,
+sangrías, viñetas, cómo se escribe una tabla o se parte una fórmula en renglones. El formato del
+original puede ser malo; se formatea después, como convenga.
+
+**Rápido por defecto**: transcriptores y verificadores son subagentes con `model: "sonnet"`, **todos
+los lotes lanzados juntos en un mismo mensaje**, no de a uno. Medido en Matemática C (2026-09-28):
+sonnet ~8 s por página con el contenido casi al nivel de Opus; Gemini Flash ~30 min por página y el
+triple de errores de contenido. Ampliar una zona es para un símbolo que de verdad no se puede decidir,
+no una rutina por página.
+
 **Cada conversión lleva dos verificaciones contra el original** (Juan, 2026-09-28): primero la del
 agente (paso 4), después la de Juan, que la tilda él en Obsidian. **Nada se ingiere ni se resume sin
 la del agente en `ok`.** El detalle, en «Las dos verificaciones».
@@ -115,21 +128,23 @@ transcribir **una sola página** (`--paginas 7`): sirve para arreglar la página
 
 1.  `db.py transcribir [--paginas A-B] ORIGINAL <temporal>/trans` renderiza las páginas del tramo a
     150 ppp, lista los lotes de hasta 10 páginas y las páginas con imágenes.
-2.  **Un subagente `general-purpose` por lote**, porque las imágenes llenan el contexto. Pasale la
-    ruta del directorio, las páginas del lote y este encargo:
+2.  **Un subagente `general-purpose` con `model: "sonnet"` por lote**, porque las imágenes llenan el
+    contexto, y **todos los lotes en paralelo**. Pasale la ruta del directorio, las páginas del lote y
+    este encargo:
     > Por cada página N del lote, mirá `pag-NNN.png` y escribí `pag-NNN.md` con su transcripción
-    > exacta en Markdown. Reglas: el texto tal cual, en su orden, sin corregir erratas ni completar
-    > nada; toda la matemática en LaTeX (`$…$` en línea, `$$…$$` en bloque), símbolo por símbolo
-    > (≤ no es <, ≠ no es =, respetá subíndices, exponentes, ∀, ∈, grados); títulos con `#` sólo si
-    > en la página son títulos; tablas como tablas Markdown y matrices con `\begin{pmatrix}`; sin
-    > marcas de agua, encabezados ni pies repetidos. **Cada figura** (diagrama, gráfico, captura,
-    > foto, ilustración, tabla o código que sea imagen) va en su lugar como un bloque
+    > exacta en Markdown. **Importa el contenido, no la presentación**: el texto tal cual, en su
+    > orden, sin corregir erratas ni completar nada; toda la matemática en LaTeX (`$…$` en línea,
+    > `$$…$$` en bloque), símbolo por símbolo (≤ no es <, ≠ no es =, `v` no es `V`, la O no es el 0;
+    > respetá subíndices, exponentes, ∀, ∈, grados, flechas); tablas y matrices completas. El
+    > formato (títulos, alineación, sangrías, viñetas, cómo partir una fórmula) elegilo vos, sin
+    > copiar el del original; sacá marcas de agua, encabezados y pies repetidos. **Cada esquema,
+    > diagrama, gráfico, tabla o código que sea imagen** va en su lugar como un bloque
     > `> [!figura] <Clase>: <qué muestra>`, con una línea `> Texto:` que copia **todo** el texto
     > que tiene adentro y una descripción de lo que dice que no está en ese texto; el formato
-    > completo está en «Figuras» de la skill convertir-documentos. Una figura no se saltea nunca,
-    > aunque parezca no aportar: la sin información va como `> [!figura] Decorativa: <qué es>`.
+    > completo está en «Figuras» de la skill convertir-documentos. Un adorno sin información no
+    > hace falta.
     > Una página en blanco: `[página en blanco]`. Una parte ilegible: `[ilegible]`, nunca una
-    > conjetura. **Ante un símbolo dudoso, ampliá antes de decidir**: `pdftoppm -r 400 -f N -l N
+    > conjetura. **Sólo si un símbolo no se puede decidir a la vista, ampliá**: `pdftoppm -r 400 -f N -l N
     > -png ORIGINAL <temporal>/zoom` y recortá la zona con `magick … -crop`. Si dos glifos se ven
     > iguales en esa letra (la O y el 0, la l y el 1), desempatá con la capa de texto
     > (`pdftotext -f N -l N -layout ORIGINAL -`): sirve **sólo para elegir entre los glifos que
@@ -223,7 +238,8 @@ las dos (ver «Las dos verificaciones»).
     *   **código**: las líneas que terminan en `;`, `{` o `}` y no quedaron como línea en la salida. Es
         el código aplastado, que la cobertura no detecta.
     Además cuenta las palabras pegadas, lista las páginas con fórmulas y las páginas con imágenes, y
-    avisa cuáles de estas no tienen ningún bloque `[!figura]` en el `.md` (error seguro). **Es un filtro, no un
+    avisa cuáles de estas no tienen ningún bloque `[!figura]` en el `.md` (para mirar: puede ser un
+    adorno). **Es un filtro, no un
     veredicto: ninguna métrica alcanza para un `ok`.** La de palabras no ve la matemática, y así se
     marcaron `ok` conversiones rotas.
 2.  **Palabras pegadas** → no hace falta mirar nada más: convertí con la otra herramienta y volvé a
@@ -233,27 +249,29 @@ las dos (ver «Las dos verificaciones»).
     PDF no hay revisión visual ni transcripción). `verificar --imagenes` renderiza todas a 110 ppp y las
     parte en lotes de 10. **El 10 es el tamaño del lote, no un tope**: un documento de 40 páginas son
     4 subagentes. Si son demasiadas para esta sesión, verificá un tramo (`--paginas`) y decíselo al
-    usuario; nunca marques `ok` páginas que nadie miró. Un subagente `general-purpose` por lote, con
-    las rutas del PDF, del `.md` y de las imágenes, y este encargo:
+    usuario; nunca marques `ok` páginas que nadie miró. Un subagente `general-purpose` con
+    `model: "sonnet"` por lote, **todos en paralelo**, distinto del que transcribió, con las rutas del
+    PDF, del `.md` y de las imágenes, y este encargo:
     > Por cada `pag-NNN.png` de tu lote, mirá la página y buscá su tramo en el `.md` (la marca
-    > `<!-- pág N -->`, o un grep de una frase). Compará **todo**: que el texto esté completo y en
-    > orden, y la matemática símbolo por símbolo (≤ contra <, ≠ contra =, ∈, ∀, subíndices,
-    > exponentes, signos, fracciones, matrices). Buscá también palabras pegadas, código aplastado y
-    > tablas inventadas. **Contá las figuras de la página** (diagramas, gráficos, capturas, fotos,
-    > ilustraciones, tablas o código que sean imagen, y las decorativas que no son parte de la
-    > plantilla; el fondo, las franjas y los logos que se repiten en todas las páginas no cuentan) y,
-    > por cada una, buscá su bloque `> [!figura]` en esa página del `.md`: que la clase sea la
-    > correcta, que la línea `Texto:` tenga **todo** el texto de la figura (cada rótulo, valor,
-    > nombre de eje o de nodo) y que la descripción diga bien lo que muestra (qué se conecta con qué,
-    > hacia dónde, qué valores). Una figura sin bloque, o con un rótulo de menos, es un problema.
-    > **Un símbolo chico o dudoso no se da por bueno sin ampliarlo** (`pdftoppm -r 400 -f N -l N`
+    > `<!-- pág N -->`, o un grep de una frase). **Compará sólo el contenido**: que el texto esté
+    > completo y en orden, y la matemática símbolo por símbolo (≤ contra <, ≠ contra =, ∈, ∀,
+    > subíndices, exponentes, signos, fracciones, matrices, mayúsculas y minúsculas: `v` no es `V`).
+    > La presentación no es un problema: títulos, alineación, sangrías, viñetas, cómo está escrita
+    > una tabla o partida una fórmula. Buscá también palabras pegadas, código aplastado y tablas
+    > inventadas. **Contá los esquemas, diagramas, gráficos, tablas o código que sean imagen** (los
+    > adornos sin información y la plantilla no cuentan) y, por cada uno, buscá su bloque
+    > `> [!figura]` en esa página del `.md`: que la línea `Texto:` tenga **todo** su texto (cada
+    > rótulo, valor, nombre de eje o de nodo) y que la descripción diga bien lo que muestra (qué se
+    > conecta con qué, hacia dónde, qué valores). Uno sin bloque, o con un rótulo de menos, es un
+    > problema. **Si un símbolo no se puede decidir a la vista, ampliá** (`pdftoppm -r 400 -f N -l N`
     > y `magick … -crop`). Si dos glifos se ven iguales en esa letra (la O y el 0), la capa de
     > texto (`pdftotext -f N -l N -layout`) desempata. Un `[falta en el original: …]` es correcto
     > si en la imagen ampliada ahí no hay nada dibujado; un `<!-- dudoso: … -->` no es un
     > problema, pero anotalo en tu línea para que llegue a Juan.
     > Respondé **una línea por cada página de tu lote, sin saltear ninguna**:
     > `pág N: ok · figuras: K` o `pág N: problema — <qué, con el texto del .md y lo que dice la
-    > imagen> · figuras: K`, con K = las figuras que viste (0 si ninguna). No arregles nada.
+    > imagen> · figuras: K`, con K = las figuras con información que viste (0 si ninguna). No
+    > arregles nada.
     Juntá las respuestas de todos los lotes en un archivo de informe temporal.
 4.  **Si fallan páginas**: en una conversión de herramienta, convertí con la otra (si soporta el
     formato) y verificá de nuevo; en un PDF con ecuaciones, transcribí esas páginas (2b). En una
@@ -268,10 +286,9 @@ las dos (ver «Las dos verificaciones»).
     *   **Guarda de matemática** (estricta, Juan 2026-09-28): las páginas que siguen siendo texto de
         herramienta (toda la conversión, o las marcadas `sin transcribir`) y usan fuentes de LaTeX
         cuentan como error aunque el informe diga ok.
-    *   **Guarda de figuras**: una página cuenta como error si el verificador vio más figuras que
-        bloques `[!figura]` tiene esa página en el `.md`, o si el original tiene imágenes (fuera de
-        la plantilla) y la página ningún bloque. En una conversión de herramienta no hay bloques, así
-        que toda página con figuras queda con error.
+    *   **Guarda de figuras**: una página cuenta como error si el verificador vio más figuras con
+        información que bloques `[!figura]` tiene esa página en el `.md`. Si el original tiene
+        imágenes y la página ningún bloque, `marcar` sólo lo avisa: puede ser un adorno.
     *   Anota el md5 del cuerpo (sin el frontmatter). Por tramos, además, el md5 de cada tramo; los
         tramos anteriores que siguen iguales se conservan. Verificar por tramos necesita las marcas de
         página: las tiene una transcripción, y a una conversión de herramienta se las pone `paginar`.
@@ -282,9 +299,10 @@ las dos (ver «Las dos verificaciones»).
 
 ### Figuras
 
-**Toda figura perdida cuenta como error, tenga o no información** (Juan, 2026-09-28). Una figura es
-un diagrama, gráfico, captura, foto, ilustración, o una tabla o código que están como imagen. No son
-figuras la plantilla: el fondo, las franjas y los logos que se repiten en todas las páginas.
+**Un esquema, tabla o diagrama perdido es un error de contenido** (Juan, 2026-09-29; reemplaza la
+regla del 2026-09-28 que exigía también los adornos). Una figura es un esquema, diagrama, gráfico,
+captura, foto o ilustración con información, o una tabla o código que están como imagen. Un adorno
+sin información y la plantilla (el fondo, las franjas y los logos que se repiten) no hacen falta.
 
 En una transcripción, cada figura va **en su lugar del texto**, como un callout de Obsidian:
 
@@ -297,7 +315,7 @@ En una transcripción, cada figura va **en su lugar del texto**, como un callout
 ```
 
 *   **Título**: la clase y qué muestra, en una línea. Clases: `Diagrama`, `Gráfico`, `Captura`,
-    `Foto`, `Ilustración`, `Tabla`, `Código`, `Decorativa`.
+    `Foto`, `Ilustración`, `Tabla`, `Código`.
 *   **`Texto:`** copia todo el texto que la figura tiene adentro, en orden de lectura, cada trozo
     entre «», con la matemática en LaTeX. `Texto: —` si no tiene. Es lo que la hace buscable y lo que
     el verificador compara rótulo por rótulo.
@@ -305,15 +323,8 @@ En una transcripción, cada figura va **en su lugar del texto**, como un callout
     (`A → B`, con el rótulo de la flecha). Un gráfico: ejes, escalas, cada curva o vector, los puntos
     notables con sus valores. Una tabla como imagen: la tabla en Markdown dentro del callout. Una
     captura de código: el código en un bloque dentro del callout.
-*   **`Decorativa`**: una imagen sin información que no es plantilla. Una línea, sin `Texto:`. Sirve
-    también cuando el filtro detecta una imagen que a la vista es un fondo.
-*   **La frontera con la plantilla es la repetición**: es plantilla sólo lo que aparece igual en
-    todas (o casi todas) las páginas. Un adorno que aparece una vez, como una palabra en cursiva
-    grande dibujada detrás de un título, es una figura `Decorativa`, aunque no aporte nada.
-
 El chequeo es doble: el verificador visual cuenta las figuras de cada página y revisa cada bloque
-(paso 4.3), y `marcar` compara esa cuenta con los bloques de la página y con las imágenes del
-original (paso 4.5). El filtro automático sólo ve imágenes: un diagrama dibujado con formas lo
+(paso 4.3), y `marcar` compara esa cuenta con los bloques de la página (paso 4.5). El filtro automático sólo ve imágenes: un diagrama dibujado con formas lo
 encuentra únicamente la revisión visual.
 
 El bloque no incluye la imagen. Si más adelante se decide guardar recortes, van como una línea

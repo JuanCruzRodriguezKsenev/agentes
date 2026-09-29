@@ -712,8 +712,8 @@ def cmd_transcribir(a):
         print(f"  {rangos(g)}")
     raster = [i for i in tramo if figuras_raster(original).get(i)]
     if raster:
-        print(f"Págs con imágenes (fuera de la plantilla): {rangos(raster)}. Cada una lleva al menos un bloque "
-              "`> [!figura]`; si la imagen resulta ser un fondo, `> [!figura] Decorativa: …`.")
+        print(f"Págs con imágenes (fuera de la plantilla): {rangos(raster)}. Cada esquema, tabla o diagrama con "
+              "información lleva un bloque `> [!figura]`; un adorno no hace falta.")
     print(f"Después: db.py ensamblar {shlex.quote(str(original))} {shlex.quote(str(destino))} SALIDA.md")
 
 
@@ -986,16 +986,18 @@ def cmd_marcar(a):
         for p in fuentes_mate(original, sorted(herramienta & set(tramo))):
             guardas[p].append("fuentes de LaTeX y el texto es de herramienta, no una transcripción")
 
-    # Guarda de figuras: toda figura perdida es un error, tenga o no información (Juan, 2026-09-28).
-    # Una figura está si su página tiene un bloque `> [!figura]` por cada figura que vio el verificador;
-    # además, una página con imágenes en el original y ningún bloque es error aunque el informe diga 0.
+    # Guarda de figuras: un esquema, tabla o diagrama perdido es un error de contenido; un adorno no hace
+    # falta (Juan, 2026-09-29). Una figura está si su página tiene un bloque `> [!figura]` por cada figura
+    # con información que vio el verificador. Una página con imágenes en el original y ningún bloque sólo
+    # se avisa: puede ser un adorno.
     bloques, raster = bloques_figura(v["cuerpo"]), figuras_raster(original)
     for p in tramo:
         vistas, hay = informe[p][2], bloques.get(p, 0)
         if vistas > hay:
             guardas[p].append(f"el verificador vio {vistas} figura(s) y el .md tiene {hay} bloque(s) [!figura]")
         elif raster.get(p) and not hay:
-            guardas[p].append(f"el original tiene {raster[p]} imagen(es) y el .md ningún bloque [!figura]")
+            print(f"aviso: pág {p}: el original tiene {raster[p]} imagen(es) y el .md ningún bloque [!figura]; "
+                  "si es un esquema o una tabla con información, falta")
     for p, motivos in sorted(guardas.items()):
         errores_tramo.add(p)
     if guardas:
