@@ -826,6 +826,8 @@ def original_de(ruta, fm, forzado=None):
 
 def total_paginas(original):
     if original and original.is_file():
+        if original.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"):
+            return 1
         t = textos_por_pagina(original)
         return len(t) if t is not None else None
     return None

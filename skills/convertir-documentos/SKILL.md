@@ -1,6 +1,6 @@
 ---
 name: convertir-documentos
-description: Convierte documentos (PDF, Word, PowerPoint, Excel, OpenDocument, RTF, EPUB y correos .msg de Outlook) a Markdown eligiendo entre anydoc y markitdown según una base de pruebas propia, transcribe desde la imagen los PDF con ecuaciones o figuras, verifica cada conversión página por página contra el original y la marca con su huella, y registra pruebas nuevas para que la elección mejore con el uso. Usar cuando el usuario pida pasar, convertir o extraer a Markdown uno o más de esos archivos, cuando pregunte qué herramienta conviene para un documento, cuando pida verificar o marcar una conversión o consultar su estado de verificación, o cuando pida medir, comparar o registrar conversiones. No usar para HTML, CSV, JSON, XML, notebooks, código, texto plano, zips, imágenes ni audio.
+description: Convierte documentos (PDF, Word, PowerPoint, Excel, OpenDocument, RTF, EPUB y correos .msg de Outlook) a Markdown eligiendo entre anydoc y markitdown según una base de pruebas propia, transcribe desde la imagen los PDF con ecuaciones o figuras y las fotos de parciales o prácticas (jpg, png, webp, tif), verifica cada conversión página por página contra el original y la marca con su huella, y registra pruebas nuevas para que la elección mejore con el uso. Usar cuando el usuario pida pasar, convertir o extraer a Markdown uno o más de esos archivos, cuando pregunte qué herramienta conviene para un documento, cuando pida verificar o marcar una conversión o consultar su estado de verificación, o cuando pida medir, comparar o registrar conversiones. No usar para HTML, CSV, JSON, XML, notebooks, código, texto plano, zips, audio ni imágenes que no sean fotos de un documento.
 ---
 
 # Convertir documentos a Markdown
@@ -38,15 +38,19 @@ Hablás y escribís en el idioma del usuario.
 | EPUB | `.epub` | sí | sí |
 | Outlook | `.msg` | no | sí |
 
-Fuera de alcance: HTML, CSV, JSON, XML, `.ipynb`, código, `.txt`/`.md`, imágenes, audio. Un `.zip` se
-descomprime y se trata cada documento de adentro. Si el usuario igual quiere convertir algo de eso,
-decíselo y no uses esta skill.
+Una **foto de un documento** (`.jpg`, `.jpeg`, `.png`, `.webp`, `.tif`, `.tiff`), como la foto de un
+parcial, no pasa por ninguna herramienta: se transcribe desde la imagen (2c).
+
+Fuera de alcance: HTML, CSV, JSON, XML, `.ipynb`, código, `.txt`/`.md`, imágenes que no son un
+documento, audio. Un `.zip` se descomprime y se trata cada documento de adentro. Si el usuario
+igual quiere convertir algo de eso, decíselo y no uses esta skill.
 
 ## Flujo
 
 ```
 1. Recomendar   db.py recomendar ARCHIVO...
 2. Convertir    el comando que imprime; si tiene ecuaciones o figuras, transcribir desde la imagen (2b)
+                una foto (jpg, png…): transcribir desde la foto (2c)
 3. Revisar      mirar la salida; limpiar pies si corresponde
 4. Verificar    filtro automático + revisión visual de TODAS las páginas (o del tramo) + marcar
 5. Registrar    db.py probar + calificar, cuando falta evidencia o lo piden
@@ -157,6 +161,34 @@ volvieron.
 **Los lotes** se arman por documento entero (un documento no se parte salvo que pase de 10
 páginas) y **por tipo**: los manuscritos juntos, el LaTeX tipeado junto, las presentaciones juntas.
 Cada lote lleva un contexto común y los difíciles no se mezclan con los fáciles.
+
+### 2c. Fotos de un documento
+
+Provisorio (2026-09-29), hasta que haya herramientas propias para imágenes. Para fotos de parciales o
+de prácticas. `db.py` cuenta cada foto como **un original de 1 página**, así que `ensamblar`, `marcar`,
+`estado` y `huella` andan igual que con un PDF. En cambio, `recomendar`, `transcribir` y `verificar` no
+sirven para imágenes: no hay nada que renderizar ni capa de texto.
+
+1.  El `.md` va al lado de la foto, con el mismo nombre (`2025-04-22 Tema 1.jpeg` →
+    `2025-04-22 Tema 1.md`). Un examen en varias fotos no se une: cada foto tiene su `.md`.
+2.  **Un subagente `general-purpose`** mira la foto y escribe `<temporal>/trans/pag-001.md`, con el
+    mismo encargo de 2b (LaTeX, figuras en `> [!figura]`, `[ilegible]`, `<!-- dudoso: … -->`). Ampliar
+    ante la duda es recortar la foto con `magick ORIGINAL -crop …`. Además, **la foto no es una página
+    limpia**: se transcribe sólo lo impreso o escrito del documento, y no la mesa ni los dedos. Lo que
+    alguien escribió a mano encima de un enunciado impreso (una resolución, una nota o un tachón) se
+    transcribe aparte, en un bloque `> [!figura] Anotación a mano: …`, nunca mezclado con el enunciado.
+    Lo que la foto corta o deja fuera de foco va como `[fuera de la foto]` o `[ilegible]`.
+3.  `db.py ensamblar --conversor <modelo> FOTO <temporal>/trans SALIDA.md` arma el `.md`, con la marca
+    `<!-- pág 1 -->` y `fuente:` apuntando a la foto.
+4.  **Verificá con OTRO subagente**, con el encargo de revisión visual del paso 4 aplicado a la foto
+    en lugar de `pag-NNN.png`. El informe es una sola línea, `pág 1: ok · figuras: K` (o
+    `pág 1: problema — … · figuras: K`), y después va `db.py marcar --revision INFORME SALIDA.md`. No hay
+    filtro automático: `verificar` avisa que el formato no se verifica y no hace nada más.
+5.  La verificación de Juan es la de siempre: la tilda él en Obsidian.
+
+**Una resolución no es una conversión.** Si el usuario pide además resolver el examen, la resolución
+va en otra nota, que no lleva `tipo: conversión` ni `fuente:`, y nunca en el `.md` de la foto. Los
+parciales no se ingieren en la wiki: esto sirve para buscar en ellos y para Repasar.
 
 ### 3. Revisar
 
