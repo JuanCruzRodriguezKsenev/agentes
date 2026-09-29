@@ -63,10 +63,13 @@ importa, y no se transcribe ni se verifica: el color, la alineación, si un tít
 sangrías, viñetas, cómo se escribe una tabla o se parte una fórmula en renglones. El formato del
 original puede ser malo; se formatea después, como convenga.
 
-**Rápido por defecto**: transcriptores y verificadores son subagentes con `model: "sonnet"`, **todos
-los lotes lanzados juntos en un mismo mensaje**, no de a uno. Medido en Matemática C (2026-09-28):
-sonnet ~8 s por página con el contenido casi al nivel de Opus; Gemini Flash ~30 min por página y el
-triple de errores de contenido. Ampliar una zona es para un símbolo que de verdad no se puede decidir,
+**Rápido por defecto**: transcriptores y verificadores son subagentes `conversor` (Sonnet con esfuerzo
+high, fijado en su definición; Juan, 2026-09-29), lanzados **sin** pasar `model`, que le ganaría a la
+definición, **todos los lotes lanzados juntos en un mismo
+mensaje**, no de a uno. Medido en Matemática C (2026-09-28): sonnet ~8 s por página con el contenido
+casi al nivel de Opus; Gemini Flash ~30 min por página y el triple de errores de contenido. En las 5
+fotos de parciales del módulo 1 (2026-09-29), Sonnet tardó 4,5 min en total y Gemini Flash High 33, con
+el triple de errores y sin marcar ninguna duda. Ampliar una zona es para un símbolo que de verdad no se puede decidir,
 no una rutina por página.
 
 **Cada conversión lleva dos verificaciones contra el original** (Juan, 2026-09-28): primero la del
@@ -128,7 +131,7 @@ transcribir **una sola página** (`--paginas 7`): sirve para arreglar la página
 
 1.  `db.py transcribir [--paginas A-B] ORIGINAL <temporal>/trans` renderiza las páginas del tramo a
     150 ppp, lista los lotes de hasta 10 páginas y las páginas con imágenes.
-2.  **Un subagente `general-purpose` con `model: "sonnet"` por lote**, porque las imágenes llenan el
+2.  **Un subagente `conversor` por lote**, porque las imágenes llenan el
     contexto, y **todos los lotes en paralelo**. Pasale la ruta del directorio, las páginas del lote y
     este encargo:
     > Por cada página N del lote, mirá `pag-NNN.png` y escribí `pag-NNN.md` con su transcripción
@@ -186,10 +189,12 @@ sirven para imágenes: no hay nada que renderizar ni capa de texto.
 
 1.  El `.md` va al lado de la foto, con el mismo nombre (`2025-04-22 Tema 1.jpeg` →
     `2025-04-22 Tema 1.md`). Un examen en varias fotos no se une: cada foto tiene su `.md`.
-2.  **Un subagente `general-purpose`** mira la foto y escribe `<temporal>/trans/pag-001.md`, con el
+2.  **Un subagente `conversor`** mira la foto y escribe `<temporal>/trans/pag-001.md`, con el
     mismo encargo de 2b (LaTeX, figuras en `> [!figura]`, `[ilegible]`, `<!-- dudoso: … -->`). Ampliar
     ante la duda es recortar la foto con `magick ORIGINAL -crop …`. Además, **la foto no es una página
-    limpia**: se transcribe sólo lo impreso o escrito del documento, y no la mesa ni los dedos. Lo que
+    limpia**: se transcribe sólo lo impreso o escrito del documento, y no la mesa ni los dedos. **En
+    un parcial no van los campos de nombre ni de legajo**: ni el rótulo impreso ni lo escrito o tachado
+    en ellos, ni la nota del corrector (Juan, 2026-09-29). Lo que
     alguien escribió a mano encima de un enunciado impreso (una resolución, una nota o un tachón) se
     transcribe aparte, en un bloque `> [!figura] Anotación a mano: …`, nunca mezclado con el enunciado.
     Lo que la foto corta o deja fuera de foco va como `[fuera de la foto]` o `[ilegible]`.
@@ -249,8 +254,8 @@ las dos (ver «Las dos verificaciones»).
     PDF no hay revisión visual ni transcripción). `verificar --imagenes` renderiza todas a 110 ppp y las
     parte en lotes de 10. **El 10 es el tamaño del lote, no un tope**: un documento de 40 páginas son
     4 subagentes. Si son demasiadas para esta sesión, verificá un tramo (`--paginas`) y decíselo al
-    usuario; nunca marques `ok` páginas que nadie miró. Un subagente `general-purpose` con
-    `model: "sonnet"` por lote, **todos en paralelo**, distinto del que transcribió, con las rutas del
+    usuario; nunca marques `ok` páginas que nadie miró. Un subagente `conversor` por lote,
+    **todos en paralelo**, distinto del que transcribió, con las rutas del
     PDF, del `.md` y de las imágenes, y este encargo:
     > Por cada `pag-NNN.png` de tu lote, mirá la página y buscá su tramo en el `.md` (la marca
     > `<!-- pág N -->`, o un grep de una frase). **Compará sólo el contenido**: que el texto esté

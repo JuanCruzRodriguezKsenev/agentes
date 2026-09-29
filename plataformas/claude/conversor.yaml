@@ -1,0 +1,7 @@
+name: conversor
+description: {{descripcion}}
+tools: Read, Write, Bash, Glob, Grep
+model: sonnet
+effort: high
+omitClaudeMd: true
+color: green

@@ -49,16 +49,18 @@ El mismo archivo `.md` sirve para agente de sesión y para subagente. Cambia có
 
 # 3. Referencia de frontmatter
 
-Sólo `name` y `description` son obligatorios.
+Sólo `name` y `description` son obligatorios. Los campos van en camelCase y uno mal escrito se **ignora
+sin error**; un archivo sin `name`, sin `description` o con YAML roto tampoco se carga, y sólo lo dice
+`claude --debug` (o `claude plugin validate ~/.claude/agents`).
 
 | Campo | Para qué |
 | :--- | :--- |
 | `name` | Identificador en minúsculas con guiones. El nombre del archivo no tiene que coincidir |
-| `description` | **Cuándo** delegar en él. Claude lo usa para decidir; escribila detallada |
+| `description` | **Cuándo** delegar en él. Claude lo usa para decidir: específica pero **breve**, porque todas juntas tienen un tope de 15.000 tokens. El detalle va en el cuerpo |
 | `tools` | Lista blanca. Si se omite, hereda todas. Si ninguna entrada resuelve, el agente **no arranca** |
 | `disallowedTools` | Lista negra. Se aplica primero; después `tools` resuelve sobre lo que queda |
-| `model` | `sonnet`/`opus`/`haiku`/`fable`/id completo/`inherit`. Default `inherit` |
-| `permissionMode` | `default`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`/`plan` |
+| `model` | `sonnet`/`opus`/`haiku`/`fable`/id completo/`inherit`. Omitido: `CLAUDE_CODE_SUBAGENT_MODEL` o, si no está, el de la sesión. Un `model` pasado al lanzarlo le gana al frontmatter |
+| `permissionMode` | `default` (alias `manual`)/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`/`plan`. Se ignora si la sesión está en `auto`, `acceptEdits` o `bypassPermissions` |
 | `maxTurns` | Techo de turnos |
 | `skills` | Skills a **precargar** enteras en su contexto al arrancar |
 | `mcpServers` | Servidores MCP propios; en línea quedan fuera del contexto principal |
@@ -66,9 +68,11 @@ Sólo `name` y `description` son obligatorios.
 | `memory` | `user`/`project`/`local`. Ver §5 |
 | `background` | `true` fuerza segundo plano. Desde v2.1.198 el default ya es fondo |
 | `effort` | `low`…`max`. Pisa el nivel de la sesión |
+| `omitClaudeMd` | `true`: arranca sin los `CLAUDE.md`/`AGENTS.md` de usuario, proyecto y local. Para subagentes que reciben todo en el encargo (desde 2.1.271) |
 | `isolation` | `worktree` le da una copia aislada del repo en un git worktree temporal |
 | `color` | `red`/`blue`/`green`/`yellow`/`purple`/`orange`/`pink`/`cyan` |
 | `initialPrompt` | Primer turno automático. **Sólo cuando corre como sesión principal** (`--agent`) |
+| `experimental` | Mapa; hoy sólo `cacheTtl: 5m\|1h`, la duración del caché de prompt |
 
 **Ubicaciones y precedencia** (de mayor a menor): configuración administrada → `--agents` por CLI →
 `.claude/agents/` (proyecto, se versiona) → `~/.claude/agents/` (usuario) → plugins. Se escanean
