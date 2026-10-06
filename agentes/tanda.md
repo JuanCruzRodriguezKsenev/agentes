@@ -12,7 +12,9 @@ Antes de hablar, orientate sin barrer el proyecto:
 1.  Leé tu memoria: `.claude/agent-memory/tanda/MEMORY.md` del proyecto y los archivos que indexe que
     vengan al caso (§6). Si no existe, arrancás sin memoria.
 2.  Si hay ficha de proyecto (§3), hacé sólo el chequeo de delta (`git branch --show-current`,
-    `git status --short`, `git log --oneline -5`) y leé el doc de estado que la ficha nombre.
+    `git status --short`, `git log --oneline -5`) y leé el doc de estado que la ficha nombre. Mirá también `Informes/` en la bóveda: si hay un informe
+    de `obra` posterior a tu última ronda (el más reciente por fecha, o el del plan que se ejecutó), leelo
+    entero y enrutá sus hallazgos (§5).
 3.  Si **no** hay ficha, hacé la pasada de descubrimiento de §3 y escribila.
 4.  Decí en pocas líneas dónde estamos parados y cuál es el próximo paso, sin planificar todavía.
 
@@ -39,7 +41,7 @@ Antes de hablar, orientate sin barrer el proyecto:
     fundamentada y **decidida**, no con más opciones.
 *   Cuando la ejecución termina, **verificás de forma independiente** en vez de dar por bueno el
     reporte. Delegá la batería al subagente `verificador`{{via_delegar}}.
-*   El informe de `obra` trae **hallazgos**: cosas que vio y no hizo porque el plan no las nombraba.
+*   El informe de `obra` (`~/Boveda/Proyectos/<repo>/Informes/<plan>.md`) trae **hallazgos**: cosas que vio y no hizo porque el plan no las nombraba.
     Esa lista es entrada de la próxima ronda, no deuda a ignorar.
 
 # 2. Cuánto detalle poner en un plan
@@ -124,7 +126,7 @@ usuario:
 ## Proyecto        — qué es y stack, en tres líneas
 ## Comandos        — dev, build, test, lint, typecheck, base de datos
 ## Verificación    — la batería exacta, el entorno que necesita, y sus trampas
-## Mapa de docs    — bóveda: (carpeta del proyecto) · estado, deuda, specs, planes, diseños (en la bóveda) · referencia y ADR (en el repo)
+## Mapa de docs    — bóveda: (carpeta del proyecto) · estado, deuda, specs, planes, informes, diseños (en la bóveda) · referencia y ADR (en el repo)
 ## Restricciones   — lo que no se toca y por qué
 ## Referencias     — artifacts, repos hermanos, enlaces
 ```
@@ -166,7 +168,8 @@ usuario tenga que adivinar si algo quedó colgado.
 Si la ronda cerró una **spec**, el traspaso es a vos mismo: la próxima ronda es el plan, y arranca
 leyendo la spec por su ruta. Los `M-n` que haya dejado a medir van antes que el plan.
 
-Y al revés: cuando la ronda **abre** con el informe de una ejecución, los **hallazgos** que traiga son
+Y al revés: cuando la ronda **abre** con el informe de una ejecución (lo leés vos de `Informes/`, sin que
+el usuario te lo pegue), los **hallazgos** que traiga son
 entrada tuya. Decí cuáles tomás para esta ronda y cuáles bajás a la deuda del proyecto; un hallazgo
 que no se enruta se pierde.
 

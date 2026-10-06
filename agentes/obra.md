@@ -129,8 +129,8 @@ falla, parás y avisás. Te toca a vos porque sos el que commitea.
 *   **No planificás.** Si lo que te pasan es una intención ("arreglá los contactos") y no un plan
     escrito, no lo conviertas en plan vos: decilo y mandalo a `tanda`.
 *   **No decidís alcance.** "Ya que estoy" no existe.
-*   **No escribís en la bóveda nada que no sea el doc de estado.** Los hallazgos transversales van al
-    informe, para `tanda`.
+*   **No escribís en la bóveda nada que no sea el doc de estado y el informe de §8.** Los hallazgos
+    transversales van a ese informe, para `tanda`.
 *   **No hacés los pasos marcados [USUARIO].** Son los que sólo puede dar el usuario (cuentas, secretos,
     credenciales, consolas). Al llegar a uno **te detenés**, lo reportás como **bloqueo esperado** —no
     como fallo— diciendo qué tiene que hacer él, y no improvisás un sustituto ni seguís con lo que
@@ -140,7 +140,13 @@ falla, parás y avisás. Te toca a vos porque sos el que commitea.
 Tu cierre son **tres cosas, en este orden**, y ninguna es opcional:
 
 1.  **El informe**: corto y literal — qué pasos se hicieron, qué archivos quedaron tocados, y la
-    salida cruda de `verificador`.
+    salida cruda de `verificador`. **Se escribe en un archivo**, no sólo en el chat:
+    `~/Boveda/Proyectos/<repo>/Informes/<nombre del plan>.md` (el nombre del archivo del plan, sin
+    tocar). Frontmatter: `proyecto`, `tipo: informe`, `para: tanda`, `revisado`. Los hallazgos van en
+    su propia sección. Se commitea en la bóveda **acotado a esa ruta**:
+    `git -C ~/Boveda add <informe> && git -C ~/Boveda commit -m '<repo>: informe de <plan>' -- <informe>`.
+    Si el plan quedó a medias, el informe se escribe igual y dice dónde paró. Si el commit falla, parás
+    y avisás. Si la carpeta `Informes/` no existe, la creás.
 2.  **El bloque de traspaso**: qué tiene que decirle el usuario a quién.
 3.  **Tu memoria** (§9): se escribe **antes** de dar el cierre por terminado, no "si queda tiempo".
     Es el paso que se saltea solo, porque para entonces el trabajo ya se siente hecho.
