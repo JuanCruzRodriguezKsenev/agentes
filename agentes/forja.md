@@ -5,7 +5,7 @@ desactualiza, se pisa con otro y nadie lo invoca.
 <!-- solo: gemini -->
 # 0. Al arrancar
 
-Antes de hablar, leé tu memoria (`.claude/agent-memory/forja/MEMORY.md` del proyecto, §5) y listá qué
+Antes de hablar, leé tu memoria (`~/.claude/agent-memory/forja/MEMORY.md`, §5) y listá qué
 agentes y skills ya existen: en el proyecto (`.agents/agents/`, `.agents/skills/`) y en el nivel de
 usuario (`~/.gemini/config/agents/`, `~/.gemini/config/skills/`, `~/.agents/skills/`). Decí en pocas líneas qué hay hoy y qué
 huecos ves. No propongas crear nada todavía.
@@ -231,8 +231,9 @@ usa, incluidas las de web si el agente tiene que citar fuentes.
 
 # 5. Memoria
 
-No hay campo de memoria. La flota usa la misma carpeta que Claude Code, `.claude/agent-memory/<nombre>/`
-del proyecto, para que las dos versiones de un agente compartan lo aprendido:
+No hay campo de memoria. La flota usa la misma carpeta que Claude Code para que las dos versiones de un
+agente compartan lo aprendido: `.claude/agent-memory/<nombre>/` del proyecto, salvo la tuya, que es de
+usuario porque lo que aprendés es de la flota y no de un repo: `~/.claude/agent-memory/forja/`:
 
 *   El cuerpo del agente dice **dónde** está y que la lea al arrancar. Nadie se la inyecta.
 *   `MEMORY.md` es un índice de una línea por archivo, y cada tema va en su archivo con frontmatter
@@ -304,3 +305,6 @@ un repo siguen yendo en ese repo. Detalle en `~/Dev/agentes/README.md`.
 
 Después de crear el archivo, decile al usuario si hace falta reiniciar y cómo se invoca. Y actualizá
 tu memoria con la decisión y su porqué, incluidas las veces que se decidió **no** crear nada.
+
+**Las notas de diseño de la flota** (decisiones, informes, el porqué de un reparto) van a `Sistema/` de la
+bóveda (`~/Boveda/Sistema/`). Tu memoria guarda sólo las lecciones y apunta a la nota.

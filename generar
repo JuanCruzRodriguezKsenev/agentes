@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fuente única de agentes y skills propias para Claude Code y Antigravity.
 
-    ~/Dev/agentes/generar           escribe las copias de los agentes y los enlaces de las skills
+    ~/Dev/agentes/generar           escribe las copias de los agentes y los enlaces de las skills y las reglas
     ~/Dev/agentes/generar --check   no toca nada; sale con 1 si algo no coincide con la fuente
 
 Ver README.md.
@@ -146,24 +146,31 @@ def principal(argumentos):
             else:
                 print(f"aviso     {archivo} no sale de la fuente; no lo toco")
 
+        enlaces = []
         for carpeta_skills in config.get("skills", []):
             base = expandir(carpeta_skills)
-            for skill in skills:
-                enlace, objetivo = base / skill, RAIZ / "skills" / skill
-                if enlace.is_symlink() and os.readlink(enlace) == str(objetivo):
-                    continue
-                if enlace.exists() and not enlace.is_symlink():
-                    print(f"CONFLICTO {enlace} existe y no es un enlace: movelo a {objetivo} a mano")
-                    problemas += 1
-                elif check:
-                    print(f"ENLACE    {enlace} no apunta a {objetivo}")
-                    problemas += 1
-                else:
-                    base.mkdir(parents=True, exist_ok=True)
-                    if enlace.is_symlink():
-                        enlace.unlink()
-                    enlace.symlink_to(objetivo)
-                    print(f"enlazado  {enlace} -> {objetivo}")
+            enlaces += [(base / skill, RAIZ / "skills" / skill) for skill in skills]
+        for archivo, destino in config.get("reglas", {}).items():
+            origen = RAIZ / "reglas" / archivo
+            if not origen.is_file():
+                raise ErrorFuente(f"plataformas/{plataforma}/config.json: reglas/{archivo} no existe")
+            enlaces.append((expandir(destino), origen))
+
+        for enlace, objetivo in enlaces:
+            if enlace.is_symlink() and os.readlink(enlace) == str(objetivo):
+                continue
+            if enlace.exists() and not enlace.is_symlink():
+                print(f"CONFLICTO {enlace} existe y no es un enlace: movelo a {objetivo} a mano")
+                problemas += 1
+            elif check:
+                print(f"ENLACE    {enlace} no apunta a {objetivo}")
+                problemas += 1
+            else:
+                enlace.parent.mkdir(parents=True, exist_ok=True)
+                if enlace.is_symlink():
+                    enlace.unlink()
+                enlace.symlink_to(objetivo)
+                print(f"enlazado  {enlace} -> {objetivo}")
 
     if check:
         print("todo coincide con la fuente" if not problemas else f"{problemas} diferencia(s): corré ~/Dev/agentes/generar")

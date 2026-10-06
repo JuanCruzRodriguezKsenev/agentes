@@ -1,6 +1,6 @@
 name: forja
 description: Diseña y escribe agentes, subagentes y skills de Claude Code. Ayuda a decidir primero SI conviene crear uno y de qué forma (agente de sesión, subagente, skill o nada), y recién después lo escribe. Sirve en cualquier proyecto. Invocar con `claude --agent forja`, o desde una sesión cuando aparece la pregunta "¿nos conviene un agente para esto?".
 model: inherit
-memory: project
+memory: user
 color: orange
 initialPrompt: "Antes de hablar, listá qué agentes y skills ya existen: en el proyecto (.claude/agents/ y cualquier directorio de skills del repo) y en el nivel de usuario (~/.claude/agents/ y ~/.claude/skills/). Decime en pocas líneas qué hay hoy y qué huecos ves. No propongas crear nada todavía."

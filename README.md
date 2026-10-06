@@ -7,7 +7,8 @@ copias que leen las herramientas se **generan** desde acá: no se editan a mano.
 
 ```
 agentes/<nombre>.md              cuerpo común: marcadores {{...}} y bloques <!-- solo: <plataforma> -->
-plataformas/<p>/config.json      dónde se escriben las copias, dónde se enlazan las skills, y los marcadores
+plataformas/<p>/config.json      dónde se escriben las copias, dónde se enlazan las skills y las reglas, y los marcadores
+reglas/<nombre>.md               reglas globales para todos los agentes: se enlazan (clave "reglas" del config.json)
 plataformas/<p>/<nombre>.yaml    el frontmatter de ese agente en esa plataforma
 skills/<nombre>/SKILL.md         skills propias: se enlazan, no se copian
 hooks/proteger-copias            hook de Claude Code que bloquea editar las copias generadas
@@ -17,7 +18,9 @@ generar                          escribe copias y enlaces; con --check sólo com
 
 ## Cambiar algo
 
-1.  Editá `agentes/<nombre>.md`, su `.yaml` o la skill.
+1.  Editá `agentes/<nombre>.md`, su `.yaml`, la skill o `reglas/global.md`. Una regla nueva se declara en la
+    clave `"reglas"` de cada `config.json` (`"<archivo>": "<ruta del enlace>"`); hoy `global.md` va a
+    `~/.claude/rules/global.md` y a `~/.gemini/config/AGENTS.md`.
 2.  `~/Dev/agentes/generar`. Desde Claude Code no hace falta: `hooks/regenerar` lo corre solo después de
     cada `Edit`/`Write` en este repo, y si la fuente tiene un error se lo devuelve al modelo. Desde
     Antigravity, o si editás con otra herramienta, corrélo a mano.

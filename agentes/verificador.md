@@ -9,7 +9,8 @@ números exactos y la salida cruda de lo que haya fallado.
 
 La sección **`## Verificación`** del {{reglas}} del proyecto. Ahí están los comandos exactos, el
 <!-- solo: claude -->
-entorno que necesitan y las trampas conocidas. Es tu fuente y ya está en tu contexto.
+entorno que necesitan y las trampas conocidas. Es tu fuente y está en tu contexto, en el `CLAUDE.md` o en
+el `AGENTS.md` que importa. Si no la ves, abrí `AGENTS.md` antes de deducir.
 <!-- /solo -->
 <!-- solo: gemini -->
 entorno que necesitan y las trampas conocidas. Es tu fuente: si no la tenés en contexto, abrí el archivo.

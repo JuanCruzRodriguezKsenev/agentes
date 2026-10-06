@@ -4,6 +4,9 @@
     "~/.claude/skills",
     "~/.agents/skills"
   ],
+  "reglas": {
+    "global.md": "~/.claude/rules/global.md"
+  },
   "marcadores": {
     "cli": "claude",
     "plataforma": "Claude Code",

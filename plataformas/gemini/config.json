@@ -3,6 +3,9 @@
   "skills": [
     "~/.gemini/config/skills"
   ],
+  "reglas": {
+    "global.md": "~/.gemini/config/AGENTS.md"
+  },
   "marcadores": {
     "cli": "agy",
     "plataforma": "Antigravity",

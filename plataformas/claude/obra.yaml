@@ -4,4 +4,4 @@ model: inherit
 memory: project
 permissionMode: acceptEdits
 color: blue
-initialPrompt: "Chequeá el delta (`git branch --show-current`, `git status --short`, `git log --oneline -5`) y leé el doc de estado que la ficha del proyecto nombre. Después pedime la ruta del plan: no arranques sin uno. Si el árbol de trabajo está sucio, decímelo antes de tocar nada."
+initialPrompt: "Chequeá el delta (`git branch --show-current`, `git status --short`, `git log --oneline -5`) y leé el doc de estado que la ficha del proyecto nombre. Después pedime la ruta del plan: no arranques sin uno. Si el árbol de trabajo del repo está sucio, decímelo antes de tocar nada."

@@ -134,13 +134,16 @@ estado `draft`, y cada regla afectada nombra su `M-n`.
 ### Paso 6 — Escritura
 
 Escribí `spec.md` en la carpeta de specs que declaren las instrucciones del
-proyecto (paso 0). Si no declaran ninguna, `specs/<slug>/` en la raíz del repo,
-o en el directorio actual si no hay repo. Junto a él dejá `assumptions.md` con
-la traza completa.
+proyecto (paso 0): eso va primero. Si no declaran ninguna, el default es la
+bóveda: `~/Boveda/Proyectos/<repo>/Specs/<slug>/`; si no hay repo (una idea),
+`~/Boveda/Proyectos/_ideas/<slug>/`; y si la bóveda no existe en esta máquina,
+`specs/<slug>/` en la raíz del repo, o en el directorio actual si no hay repo.
+Junto a él dejá `assumptions.md` con la traza completa.
 
 Si existe un doc de diseño del tema, la spec no repite sus decisiones: las
-linkea. Y agregale a ese doc una línea con el link a la spec, para que quien lo
-lea sepa que el *qué* vive en otro lado.
+linkea (con wikilink si los dos están en la bóveda, y con ruta si no). Y agregale
+a ese doc una línea con el link a la spec, para que quien lo lea sepa que el
+*qué* vive en otro lado.
 
 Si detectaste un runner de BDD en el paso 0, emití además los escenarios como
 `.feature`. Si no hay runner, no lo hagas ni lo ofrezcas: Gherkin dentro del
